@@ -1,7 +1,7 @@
-## 变更
+## Changes
 
-<!-- 描述问题与解决方式 -->
+<!-- Describe the problem and your solution. -->
 
-## 验证
+## Verification
 
-<!-- 描述运行的测试和结果 -->
+<!-- Describe the checks performed and their results. -->

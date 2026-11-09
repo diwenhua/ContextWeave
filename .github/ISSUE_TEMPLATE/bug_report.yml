@@ -1,23 +1,22 @@
 name: Bug report
-description: 报告问题
+description: Report a problem
 body:
   - type: textarea
     id: description
     attributes:
-      label: 问题描述
-      description: 发生了什么？
+      label: Description
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: 复现步骤和预期行为
+      label: Steps to reproduce and expected behavior
     validations:
       required: true
   - type: input
     id: environment
     attributes:
-      label: macOS 和 ContextWeave 版本
+      label: macOS and ContextWeave versions
   - type: markdown
     attributes:
-      value: 请勿包含真实会话、令牌或其他敏感信息。
+      value: Please remove private conversations, credentials, and other sensitive information.

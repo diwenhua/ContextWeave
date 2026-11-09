@@ -1,10 +1,10 @@
-# 贡献指南
+# Contributing
 
-欢迎提交问题和改进。较大的功能或架构调整建议先创建 issue 讨论。
+Contributions are welcome. Please open an issue before substantial features or architectural changes.
 
-1. 从 main 创建分支，保持变更聚焦。
-2. 使用 Xcode 提供的 Swift 工具链，运行 `swift build` 和 `swift test`。
-3. 为行为变化补充必要测试，并说明验证方式。
-4. 提交 pull request，描述问题、变更及验证结果。
+1. Create a focused branch from `main`.
+2. Build and test with Swift 6 and Xcode: `swift build` and `swift test`.
+3. Add appropriate tests for behavior changes and describe how you verified them.
+4. Open a pull request describing the problem and your changes.
 
-请勿提交真实对话、密钥、个人数据或数据库文件。提交代码即表示你同意按照本项目 MIT 许可证提供你的贡献。
+English is the primary language for documentation and collaboration. Translations are welcome. Do not submit real conversations, credentials, personal data, or database files. Contributions are accepted under the MIT license.

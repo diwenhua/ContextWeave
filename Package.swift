@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ContextWeave",
+    defaultLocalization: "en",
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "ContextWeave", targets: ["ContextWeaveApp"]),
@@ -10,7 +11,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "ContextWeaveCore"),
-        .executableTarget(name: "ContextWeaveApp", dependencies: ["ContextWeaveCore"]),
+        .executableTarget(name: "ContextWeaveApp", dependencies: ["ContextWeaveCore"], resources: [.process("Resources")]),
         .testTarget(name: "ContextWeaveCoreTests", dependencies: ["ContextWeaveCore"])
     ]
 )
