@@ -9,9 +9,12 @@ let package = Package(
         .executable(name: "ContextWeave", targets: ["ContextWeaveApp"]),
         .library(name: "ContextWeaveCore", targets: ["ContextWeaveCore"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1")
+    ],
     targets: [
         .target(name: "ContextWeaveCore"),
-        .executableTarget(name: "ContextWeaveApp", dependencies: ["ContextWeaveCore"], resources: [.process("Resources")]),
+        .executableTarget(name: "ContextWeaveApp", dependencies: ["ContextWeaveCore", .product(name: "Sparkle", package: "Sparkle")], resources: [.process("Resources")], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
         .testTarget(name: "ContextWeaveCoreTests", dependencies: ["ContextWeaveCore"])
     ]
 )
