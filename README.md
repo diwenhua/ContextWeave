@@ -6,7 +6,7 @@ ContextWeave is a local-first macOS app for carrying project context across AI a
 
 ## Status
 
-Early development: the app currently contains a welcome screen and basic session types. Session capture, storage, search, and handoff are planned.
+Early development: Codex, DeepSeek Harness, and local Cursor session capture, local SQLite storage, session browsing, project context handoff over MCP, and a native Settings window with data source, agent access, capture, appearance, and update controls are implemented. See [handoff setup and usage](docs/handoff.md). Search and automatic summaries are planned.
 
 ## Development
 

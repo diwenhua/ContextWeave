@@ -9,3 +9,21 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+
+.vscode/
+
+# Local session databases and signing secrets
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.p12
+.contextweave-device-id
+*.bak-contextweave-*
+*.pfx
+*.key
+
+# Third-party icons are loaded from locally installed apps, never bundled.
+Sources/ContextWeaveApp/Resources/AgentCodexLight.png
+Sources/ContextWeaveApp/Resources/AgentDeepSeek.png
+Sources/ContextWeaveApp/Resources/AgentCursor.png
