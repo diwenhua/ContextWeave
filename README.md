@@ -29,4 +29,4 @@ open dist/ContextWeave.app
 
 The app bundle is unsigned and intended for local development. Distribution requires signing and notarization. On affected Command Line Tools installations, `swift-local.sh` works around stale Swift Package interfaces using a temporary project-local copy. XCTest requires a working Xcode installation.
 
-The interface follows macOS language preferences, with English as the development language and Simplified Chinese available. See [architecture](docs/architecture.md) and [contributing](CONTRIBUTING.md). Licensed under [MIT](LICENSE).
+The interface follows macOS language preferences, with English as the development language and Simplified Chinese available. See [architecture](docs/architecture.md), [contributing](CONTRIBUTING.md), and [releasing](docs/releasing.md). Licensed under [MIT](LICENSE).
