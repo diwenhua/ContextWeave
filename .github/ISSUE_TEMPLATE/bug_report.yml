@@ -1,0 +1,23 @@
+name: Bug report
+description: 报告问题
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 发生了什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤和预期行为
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS 和 ContextWeave 版本
+  - type: markdown
+    attributes:
+      value: 请勿包含真实会话、令牌或其他敏感信息。
