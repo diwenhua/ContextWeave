@@ -29,6 +29,13 @@ public struct SessionSource: Codable, Sendable {
     }
 }
 
+public enum SessionRunState: String, Codable, Sendable {
+    case running
+    case awaitingApproval
+    case finished
+    case aborted
+}
+
 public struct SessionMessage: Codable, Sendable {
     public enum Role: String, Codable, Sendable {
         case user, assistant, tool, system
@@ -50,12 +57,24 @@ public struct SessionMessage: Codable, Sendable {
 
 public struct Session: Codable, Sendable {
     public let source: SessionSource
+    /// Legacy local workspace path; use stableProjectID for cross-workspace identity.
     public let projectID: String?
+    public let stableProjectID: String?
     public let messages: [SessionMessage]
+    /// Codex history shards share globally ordered event IDs.
+    public let messageIDsAreOrdinals: Bool?
+    /// Latest source turn boundary. Nil when the log has no start or end event.
+    public let runState: SessionRunState?
+    /// Name currently set in the agent. Nil when the agent has no separate conversation name.
+    public let agentTitle: String?
 
-    public init(source: SessionSource, projectID: String?, messages: [SessionMessage]) {
+    public init(source: SessionSource, projectID: String?, messages: [SessionMessage], messageIDsAreOrdinals: Bool? = nil, stableProjectID: String? = nil, runState: SessionRunState? = nil, agentTitle: String? = nil) {
         self.source = source
         self.projectID = projectID
+        self.stableProjectID = stableProjectID
         self.messages = messages
+        self.messageIDsAreOrdinals = messageIDsAreOrdinals
+        self.runState = runState
+        self.agentTitle = agentTitle
     }
 }
