@@ -11,6 +11,7 @@
 "handoff.noProject" = "Unassigned project";
 "handoff.target" = "Continue in";
 "handoff.copy" = "Copy handoff";
+"handoff.session.id" = "Session ID";
 "handoff.copied" = "Copied";
 "handoff.jumpToLatest" = "Jump to latest";
 "handoff.earlier" = "Load earlier messages";
@@ -18,6 +19,7 @@
 "handoff.sessions.less" = "Show less";
 "handoff.run.running" = "Running";
 "handoff.run.approval" = "Awaiting approval";
+"handoff.run.approvalTitle" = "%@ awaiting approval";
 "handoff.run.ended" = "Ended";
 "handoff.run.endedTitle" = "%@ ended";
 "handoff.role.user" = "User";
@@ -35,10 +37,15 @@
 "handoff.tool.collapse" = "Hide tool log";
 "handoff.role.tool" = "Tool";
 "handoff.role.system" = "System";
+"handoff.memory" = "Memory";
+"handoff.memory.summary" = "Summary";
+"handoff.memory.decision" = "Decision";
+"handoff.memory.preference" = "Preference";
 "handoff.empty" = "Keep your work moving across AI agents.";
 "handoff.hint" = "Select a captured session to review its messages and copy project context.";
 
 "tab.sessions" = "Sessions";
+"tab.memory" = "Memory";
 "settings.open" = "Settings…";
 "settings.cancel" = "Cancel";
 "settings.scanNow" = "Scan now";
@@ -117,3 +124,85 @@
 
 "settings.error.read" = "Could not read the settings file.";
 "settings.error.write" = "Could not save the settings file.";
+"memory.subtitle" = "Choose global, a project, or a conversation on the left. Its memory appears on the right.";
+"memory.count" = "%d memories";
+"memory.emptyTitle" = "No memory yet";
+"memory.emptyBody" = "After a conversation is captured, its goal and latest progress show up here.";
+"memory.emptyFilter" = "Nothing matches this filter";
+"memory.emptyFilterBody" = "Choose another kind to see the rest.";
+"memory.kind.all" = "All";
+"memory.openSession" = "Open conversation";
+"tab.archived" = "Archived";
+"archive.subtitle" = "Conversations archived or deleted in the original agent. History is kept read-only locally, and restored conversations return to Sessions automatically.";
+"archive.count" = "%d archived";
+"archive.emptyTitle" = "No archived conversations";
+"archive.emptyBody" = "When you archive or delete a conversation in Codex, DeepSeek Harness, or Cursor, it will appear here.";
+"archive.archivedAt" = "Archived %@";
+"archive.readOnly" = "Read-only";
+"archive.loading" = "Loading archived conversation…";
+"archive.emptySession" = "This conversation has no stored messages.";
+"archive.messages" = "%d messages";
+"archive.close" = "Close";
+
+"memory.status.all" = "All statuses";
+"memory.status.checkpoint" = "Checkpoint";
+"memory.status.candidate" = "Needs review";
+"memory.status.confirmed" = "Confirmed";
+"memory.status.rejected" = "Excluded";
+"memory.confirm" = "Confirm";
+"memory.reject" = "Exclude";
+"memory.reset" = "Restore";
+"memory.search" = "Search memories, projects, or conversations";
+
+"memory.scope.all" = "All memories";
+"memory.scope.global" = "Global";
+"memory.scope.project" = "Project";
+"memory.scope.session" = "Session";
+"memory.session.subtitle" = "Conversations are grouped by project on the left. Select one to read its memory on the right.";
+"memory.session.placeholder" = "Choose a conversation";
+"memory.session.placeholderBody" = "Conversations are grouped by project on the left. Select one to see its memory here.";
+"memory.move" = "Move to…";
+"memory.global.title" = "Global memory";
+"memory.global.subtitle" = "Applies to every project. Move a confirmed preference or decision here from a conversation or a project.";
+"memory.global.emptyTitle" = "No global memory yet";
+"memory.global.emptyBody" = "Open a conversation or a project, then move a memory to Global.";
+"memory.global.search" = "Search global memory";
+"memory.project.subtitle" = "Belongs only to this project.";
+"memory.nav.search" = "Search projects or conversations";
+"memory.nav.empty" = "No matching project or conversation";
+"memory.session.emptyTitle" = "No memory for this conversation";
+"memory.session.emptyBody" = "After the conversation is captured, its goal and latest progress show up here.";
+"memory.project.emptyTitle" = "No project memory yet";
+"memory.project.emptyBody" = "Move a memory to Project from a conversation, and it will show up here.";
+"memory.project.open" = "Show this project's memory";
+"memory.project.toggle" = "Show or hide this project's conversations";
+"memory.session.section" = "Session memory";
+"memory.session.empty" = "None yet";
+"memory.rejected.show" = "Show excluded (%d)";
+"memory.rejected.hide" = "Hide excluded (%d)";
+
+"memory.processing" = "Processing %lld conversations in the background";
+"memory.ruleMode" = "Select a conversation to extract memory with the configured model.";
+
+"settings.section.memoryModel" = "Memory Model";
+"settings.model.intro" = "Configure a model service for memory understanding.";
+"settings.model.presets" = "Service presets";
+"settings.model.endpoint" = "Chat Completions endpoint";
+"settings.model.name" = "Model name";
+"settings.model.nameHint" = "Enter the model name from your provider";
+"settings.model.keySaved" = "Key saved in Keychain";
+"settings.model.keyMissing" = "No key saved for this endpoint";
+"settings.model.keyHint" = "Leave blank to keep saved key; optional for local services";
+"settings.model.privacy" = "API keys are stored in macOS Keychain, not the settings file. Keys are not sent to a different endpoint automatically.";
+"settings.model.save" = "Save configuration";
+"settings.model.test" = "Test connection";
+"settings.model.removeKey" = "Remove key";
+"settings.model.testHint" = "The test sends a fixed short message and may incur a small charge; conversation history is not sent.";
+"settings.model.notIntegrated" = "Model extraction is available manually on a session memory page; history is not sent automatically.";
+"settings.model.saved" = "Model configuration saved.";
+"settings.model.removed" = "The key for this endpoint was removed.";
+"settings.model.success" = "Connection succeeded.";
+
+"memory.semantic.run" = "Extract this session with model";
+"memory.semantic.privacy" = "Sends redacted user and assistant content from the last 40 messages to the configured model service; charges may apply. Redaction may not catch all sensitive information.";
+"memory.semantic.success" = "Extraction complete; candidates await review.";

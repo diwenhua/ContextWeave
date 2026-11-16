@@ -21,14 +21,14 @@ final class CursorCaptureTests: XCTestCase {
         XCTAssertEqual(sqlite3_open(database.path, &db), SQLITE_OK)
         defer { sqlite3_close(db) }
         func sql(_ text: String) { XCTAssertEqual(sqlite3_exec(db, text, nil, nil, nil), SQLITE_OK) }
-        sql("CREATE TABLE composerHeaders(composerId TEXT, workspaceId TEXT, value TEXT, isSubagent INTEGER)")
+        sql("CREATE TABLE composerHeaders(composerId TEXT, workspaceId TEXT, value TEXT, isSubagent INTEGER, isArchived INTEGER)")
         sql("CREATE TABLE cursorDiskKV(key TEXT PRIMARY KEY, value BLOB)")
         func put(_ key: String, _ object: Any) throws {
             let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
             let text = String(decoding: data, as: UTF8.self).replacingOccurrences(of: "'", with: "''")
             sql("INSERT OR REPLACE INTO cursorDiskKV VALUES('\(key)', '\(text)')")
         }
-        sql("INSERT INTO composerHeaders VALUES('session-a','workspace-hash','{}',0)")
+        sql("INSERT INTO composerHeaders VALUES('session-a','workspace-hash','{}',0,0)")
         try put("composerData:session-a", ["composerId": "session-a", "createdAt": 1234, "fullConversationHeadersOnly": [["bubbleId": "b1", "type": 1], ["bubbleId": "b2", "type": 2]]])
         try put("bubbleId:session-a:b1", ["type": 1, "text": "Work on \(project.path)/Sources/A.swift"])
         try put("bubbleId:session-a:b2", ["type": 2, "text": "Implemented it", "toolFormerData": ["name": "read_file", "result": ["path": project.path + "/Sources/A.swift", "content": "done"]]])
@@ -65,6 +65,15 @@ final class CursorCaptureTests: XCTestCase {
         try put("composerData:session-a", ["composerId": "session-a", "createdAt": 1234, "status": "aborted", "unfinishedRunAt": nowMS - 300_000, "conversationCheckpointLastUpdatedAt": nowMS - 10_000, "fullConversationHeadersOnly": [["bubbleId": "b1", "type": 1], ["bubbleId": "b2", "type": 2]]])
         let resumed = await service.scan(); XCTAssertEqual(resumed.imported, 1)
         let resumedSession = try await service.session(id); XCTAssertEqual(resumedSession?.runState, .running)
+        sql("UPDATE composerHeaders SET isArchived=1 WHERE composerId='session-a'")
+        let archived = await service.scan(); XCTAssertEqual(archived.archived, 1)
+        let archivedList = try await service.sessions(); XCTAssertTrue(archivedList.isEmpty)
+        let archivedRows = try await service.displayArchivedSessions(); XCTAssertEqual(archivedRows.count, 1)
+        XCTAssertNotNil(archivedRows.first?.archivedAt)
+        let archivedSession = try await service.session(id); XCTAssertNotNil(archivedSession)
+        sql("UPDATE composerHeaders SET isArchived=0 WHERE composerId='session-a'")
+        _ = await service.scan()
+        let restoredList = try await service.sessions(); XCTAssertEqual(restoredList.count, 1)
         try put("composerData:session-a", ["composerId": "session-a", "createdAt": 1234, "fullConversationHeadersOnly": [], "headerLog": ["chunkCount": 2, "count": 2]])
         try put("composerConvHeaders:session-a:000000", [["bubbleId": "b1", "type": 1]])
         try put("composerConvHeaders:session-a:000001", [["bubbleId": "b2", "type": 2]])

@@ -15,6 +15,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var scanIntervalSeconds: Int
     /// GUI-only preference; the MCP helper ignores it.
     public var appearance: AppearancePreference
+    public var memoryModel: MemoryModelConfiguration
 
     public static let defaultScanIntervalSeconds = 300
     public static let scanIntervalChoices = [15, 30, 60, 300, 900, 1800]
@@ -26,7 +27,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         databasePath: String = "",
         watchAutomatically: Bool = true,
         scanIntervalSeconds: Int = AppSettings.defaultScanIntervalSeconds,
-        appearance: AppearancePreference = .system
+        appearance: AppearancePreference = .system,
+        memoryModel: MemoryModelConfiguration = MemoryModelConfiguration()
     ) {
         self.codexSessionsPath = codexSessionsPath
         self.dshSessionsPath = dshSessionsPath
@@ -35,10 +37,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.watchAutomatically = watchAutomatically
         self.scanIntervalSeconds = scanIntervalSeconds
         self.appearance = appearance
+        self.memoryModel = memoryModel
     }
 
     private enum CodingKeys: String, CodingKey {
-        case codexSessionsPath, dshSessionsPath, cursorUserPath, databasePath, watchAutomatically, scanIntervalSeconds, appearance
+        case codexSessionsPath, dshSessionsPath, cursorUserPath, databasePath, watchAutomatically, scanIntervalSeconds, appearance, memoryModel
     }
 
     /// Missing or unknown keys fall back to defaults so older files stay readable.
@@ -53,6 +56,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         scanIntervalSeconds = Self.scanIntervalChoices.contains(interval) ? interval : Self.defaultScanIntervalSeconds
         let appearance = try container.decodeIfPresent(String.self, forKey: .appearance)
         self.appearance = appearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+        memoryModel = try container.decodeIfPresent(MemoryModelConfiguration.self, forKey: .memoryModel) ?? MemoryModelConfiguration()
     }
 
     public var hasCustomPaths: Bool {

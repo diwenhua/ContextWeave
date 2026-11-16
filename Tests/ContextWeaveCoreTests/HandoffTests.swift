@@ -30,6 +30,85 @@ final class HandoffTests: XCTestCase {
         XCTAssertEqual(result.imported, 2); XCTAssertTrue(result.errors.isEmpty)
     }
 
+    func testRemovedCodexSessionIsHiddenAndRestored() async throws {
+        let root = try directory(), logs = root.appendingPathComponent("codex")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let file = logs.appendingPathComponent("rollout-test.jsonl")
+        try codex().write(to: file, atomically: true, encoding: .utf8)
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: logs, dshRoot: root.appendingPathComponent("dsh"), databaseURL: root.appendingPathComponent("data.sqlite")))
+        let first = await service.scan(); XCTAssertEqual(first.imported, 1)
+        let listed = try await service.sessions(); XCTAssertEqual(listed.count, 1)
+
+        try FileManager.default.removeItem(at: file)
+        let removed = await service.scan(); XCTAssertEqual(removed.archived, 1)
+        let hidden = try await service.sessions(); XCTAssertTrue(hidden.isEmpty)
+        let archivedRows = try await service.displayArchivedSessions(); XCTAssertEqual(archivedRows.count, 1)
+        XCTAssertNotNil(archivedRows.first?.archivedAt)
+        let id = try SessionID(agent: "codex", externalID: "same-id")
+        let archivedSession = try await service.session(id); XCTAssertNotNil(archivedSession)
+
+        try codex().write(to: file, atomically: true, encoding: .utf8)
+        _ = await service.scan()
+        let restored = try await service.sessions(); XCTAssertEqual(restored.count, 1)
+        let restoredArchived = try await service.displayArchivedSessions(); XCTAssertTrue(restoredArchived.isEmpty)
+    }
+
+    func testOpenApprovalSurvivesTheNextScan() async throws {
+        let root = try directory()
+        let sessions = root.appendingPathComponent("dsh")
+        let folder = sessions.appendingPathComponent("s")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("session.jsonl")
+        let start = try jsonl([
+            ["type": "session", "id": "wait-1", "version": 4, "cwd": root.appendingPathComponent("project").path, "createdAt": 1],
+            ["type": "turn/start", "data": ["turn": 1]],
+            ["type": "user/message", "seq": 1, "time": 2, "data": ["source": ["kind": "user"], "content": "请继续"]]
+        ])
+        try start.write(to: file, atomically: true, encoding: .utf8)
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: root.appendingPathComponent("codex"), dshRoot: sessions, databaseURL: root.appendingPathComponent("data.sqlite")))
+        let first = await service.scan()
+        XCTAssertTrue(first.errors.isEmpty)
+        let id = try SessionID(agent: "dsh", externalID: "wait-1")
+        let running = try await service.summary(id)
+        XCTAssertEqual(running?.runState, .running)
+        let asked = start + (try jsonl([["type": "approval/asked", "data": ["id": "a1"]]]))
+        try asked.write(to: file, atomically: true, encoding: .utf8)
+        let second = await service.scan()
+        XCTAssertTrue(second.errors.isEmpty)
+        let waiting = try await service.summary(id)
+        XCTAssertEqual(waiting?.runState, .awaitingApproval)
+    }
+
+    func testArchivedDSHSessionIsHiddenAndRestored() async throws {
+        let root = try directory()
+        let dshHome = root.appendingPathComponent("dsh")
+        let sessions = dshHome.appendingPathComponent("sessions")
+        let storages = dshHome.appendingPathComponent("storages")
+        let sessionDirectory = sessions.appendingPathComponent("project").appendingPathComponent("session-same-id")
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: storages, withIntermediateDirectories: true)
+        try dsh().write(to: sessionDirectory.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
+        let workspace = storages.appendingPathComponent("workspace.json")
+        try writeDSHWorkspace(workspace, archived: [])
+
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: root.appendingPathComponent("codex"), dshRoot: sessions, databaseURL: root.appendingPathComponent("data.sqlite")))
+        let first = await service.scan(); XCTAssertEqual(first.imported, 1)
+        let active = try await service.sessions(); XCTAssertEqual(active.count, 1)
+
+        try writeDSHWorkspace(workspace, archived: ["session-same-id"])
+        let archivedScan = await service.scan(); XCTAssertEqual(archivedScan.archived, 1)
+        let hidden = try await service.sessions(); XCTAssertTrue(hidden.isEmpty)
+        let archived = try await service.displayArchivedSessions(); XCTAssertEqual(archived.count, 1)
+
+        try writeDSHWorkspace(workspace, archived: [])
+        _ = await service.scan()
+        let restored = try await service.sessions(); XCTAssertEqual(restored.count, 1)
+
+        try FileManager.default.removeItem(at: sessionDirectory)
+        let deleted = await service.scan(); XCTAssertEqual(deleted.archived, 1)
+        let afterDelete = try await service.sessions(); XCTAssertTrue(afterDelete.isEmpty)
+    }
+
     func testDisplayPagesReturnOrderedRedactedHistory() async throws {
         let root = try directory(), logs = root.appendingPathComponent("codex")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -89,6 +168,11 @@ final class HandoffTests: XCTestCase {
     private func jsonl(_ events: [[String: Any]]) throws -> String {
         try events.map { String(decoding: try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]), as: UTF8.self) }.joined(separator: "\n") + "\n"
     }
+    private func writeDSHWorkspace(_ url: URL, archived: [String]) throws {
+        let data = try JSONSerialization.data(withJSONObject: ["global": ["archivedSessionIds": archived]], options: [.prettyPrinted])
+        try data.write(to: url)
+    }
+
     private func codex(_ prompt: String = "Implement feature A") throws -> String {
         try jsonl([
             ["type": "session_meta", "payload": ["id": "same-id", "cwd": "/tmp/project-a"]],
@@ -341,7 +425,7 @@ final class HandoffTests: XCTestCase {
         check.arguments = [db.path, "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('progress_project_timestamp','messages_session_timestamp'); PRAGMA user_version;"]
         let pipe = Pipe(); check.standardOutput = pipe
         try check.run(); let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self); check.waitUntilExit()
-        XCTAssertEqual(output, "2\n6\n")
+        XCTAssertEqual(output, "2\n11\n")
     }
     func testRejectsNewerSchemaWithoutChangingIt() throws {
         let root = try directory(), db = root.appendingPathComponent("future.sqlite")
@@ -375,6 +459,160 @@ final class HandoffTests: XCTestCase {
         let read = try await rpc("tools/call", ["name": "memory_get_context", "arguments": ["project": "/tmp/a", "target_agent": "codex"]])
         let encoded = String(decoding: try JSONSerialization.data(withJSONObject: read), as: UTF8.self)
         XCTAssertTrue(encoded.contains("Harness finished"))
+    }
+
+    func testAgentCanReadAnotherAgentsChat() async throws {
+        let root = try directory()
+        let project = root.appendingPathComponent("project")
+        let codexRoot = root.appendingPathComponent("codex")
+        let dshRoot = root.appendingPathComponent("dsh")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dshRoot, withIntermediateDirectories: true)
+        let codexLog = try jsonl([
+            ["type": "session_meta", "payload": ["id": "codex-chat", "cwd": project.path]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["text": "Codex planned the parser"]]]]
+        ])
+        let dshLog = try jsonl([
+            ["type": "session", "id": "dsh-chat", "version": 4, "cwd": project.path, "createdAt": 1_700_000_000_000],
+            ["type": "user/message", "seq": 1, "time": 1_700_000_000_002, "data": ["source": ["kind": "user"], "content": "Harness implemented the parser"]]
+        ])
+        try codexLog.write(to: codexRoot.appendingPathComponent("rollout-chat.jsonl"), atomically: true, encoding: .utf8)
+        try dshLog.write(to: dshRoot.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: codexRoot, dshRoot: dshRoot, databaseURL: root.appendingPathComponent("data.sqlite")))
+        let handler = MCPHandler(service: service)
+        func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": name, "arguments": arguments]])
+            let payload = await handler.handle(data)
+            let response = try JSONSerialization.jsonObject(with: try XCTUnwrap(payload)) as! [String: Any]
+            let result = try XCTUnwrap(response["result"] as? [String: Any])
+            let blocks = try XCTUnwrap(result["content"] as? [[String: Any]])
+            return try XCTUnwrap(blocks.first?["text"] as? String)
+        }
+        let beforeScan = try await call("memory_list_projects", [:])
+        XCTAssertNil(beforeScan.split(separator: "\"").first { $0.count == 36 && $0.contains("-") })
+        let scan = try await call("memory_scan", [:])
+        XCTAssertTrue(scan.contains("\"errors\""))
+        XCTAssertFalse(scan.contains(root.path))
+        let listed = try await call("memory_list_projects", [:])
+        let projectID = try XCTUnwrap(listed.split(separator: "\"").first { $0.count == 36 && $0.contains("-") }.map(String.init))
+        let latest = try await call("memory_read_agent", ["project": projectID, "agent": "dsh"])
+        XCTAssertTrue(latest.contains("Harness implemented the parser"))
+        XCTAssertFalse(latest.contains("Codex planned the parser"))
+        let older = try await call("memory_read_agent", ["project": projectID, "agent": "codex", "session_id": "codex-chat", "offset": 0, "limit": 10])
+        XCTAssertTrue(older.contains("Codex planned the parser"))
+        XCTAssertTrue(older.contains("codex-chat"))
+        let missing = try await call("memory_read_agent", ["project": projectID, "agent": "codex", "session_id": "missing"])
+        XCTAssertTrue(missing.contains("Session not found"))
+        let byName = try await call("memory_read_agent", ["project": projectID, "agent": "dsh", "session_name": "Harness implemented the parser"])
+        XCTAssertTrue(byName.contains("Harness implemented the parser"))
+        XCTAssertTrue(byName.contains("dsh-chat"))
+        XCTAssertFalse(byName.contains("Codex planned the parser"))
+    }
+
+    func testCopiedContinuationNamesTheSelectedConversation() async throws {
+        let root = try directory()
+        let project = root.appendingPathComponent("project")
+        let codexRoot = root.appendingPathComponent("codex")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexRoot, withIntermediateDirectories: true)
+        func log(_ id: String, _ text: String) throws -> String {
+            try jsonl([
+                ["type": "session_meta", "payload": ["id": id, "cwd": project.path]],
+                ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["text": text]]]]
+            ])
+        }
+        let keep = try jsonl([
+            ["type": "session_meta", "payload": ["id": "keep-this", "cwd": project.path]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["text": "稳定的会话名"]]]],
+            ["type": "response_item", "payload": ["type": "function_call", "name": "exec", "call_id": "call-1", "arguments": "{\"command\":\"write_stdin\"}"]],
+            ["type": "response_item", "payload": ["type": "function_call_output", "call_id": "call-1", "output": "SHOULD_NOT_COPY_TOOL_LOG"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "assistant", "content": [["text": "已整理问题组"]]]]
+        ])
+        try keep.write(to: codexRoot.appendingPathComponent("rollout-keep.jsonl"), atomically: true, encoding: .utf8)
+        try log("other-chat", "另一条不该出现的对话").write(to: codexRoot.appendingPathComponent("rollout-other.jsonl"), atomically: true, encoding: .utf8)
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: codexRoot, dshRoot: root.appendingPathComponent("dsh"), databaseURL: root.appendingPathComponent("data.sqlite")))
+        _ = await service.scan()
+        let id = try SessionID(agent: "codex", externalID: "keep-this")
+        let brief = try await service.continuation(project: project.path, session: id)
+        let prompt = ContinuationPrompt.text(brief, chinese: true)
+        XCTAssertEqual(brief.sessionID, "keep-this")
+        XCTAssertEqual(brief.title, "稳定的会话名")
+        XCTAssertTrue(prompt.contains("session_id: keep-this"))
+        XCTAssertTrue(prompt.contains("session_name: 稳定的会话名"))
+        XCTAssertTrue(prompt.contains("agent: codex"))
+        XCTAssertTrue(prompt.contains("memory_read_agent"))
+        XCTAssertFalse(prompt.contains("已整理问题组"))
+        XCTAssertFalse(prompt.contains("SHOULD_NOT_COPY_TOOL_LOG"))
+        XCTAssertFalse(prompt.contains("write_stdin"))
+        XCTAssertFalse(prompt.contains("另一条不该出现的对话"))
+        XCTAssertFalse(prompt.contains(project.path))
+        let handler = MCPHandler(service: service)
+        let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "memory_read_agent", "arguments": ["project": brief.projectID, "agent": "codex", "session_name": "稳定的会话名"]]])
+        let payload = await handler.handle(data)
+        let response = try JSONSerialization.jsonObject(with: try XCTUnwrap(payload)) as! [String: Any]
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        let text = try XCTUnwrap((result["content"] as? [[String: Any]])?.first?["text"] as? String)
+        XCTAssertTrue(text.contains("keep-this"))
+        XCTAssertTrue(text.contains("稳定的会话名"))
+        let duplicate = try log("same-a", "同名对话")
+        try duplicate.write(to: codexRoot.appendingPathComponent("rollout-same-a.jsonl"), atomically: true, encoding: .utf8)
+        try duplicate.replacingOccurrences(of: "same-a", with: "same-b").write(to: codexRoot.appendingPathComponent("rollout-same-b.jsonl"), atomically: true, encoding: .utf8)
+        _ = await service.scan()
+        let ambiguousData = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "memory_read_agent", "arguments": ["project": brief.projectID, "agent": "codex", "session_name": "同名对话"]]])
+        let ambiguousPayload = await handler.handle(ambiguousData)
+        let ambiguous = try JSONSerialization.jsonObject(with: try XCTUnwrap(ambiguousPayload)) as! [String: Any]
+        let ambiguousText = try XCTUnwrap(((ambiguous["result"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String)
+        XCTAssertTrue(ambiguousText.contains("same-a"))
+        XCTAssertTrue(ambiguousText.contains("same-b"))
+        XCTAssertTrue(ambiguousText.contains("session_id"))
+    }
+
+    func testSessionPageHonorsJSONPagination() async throws {
+        let root = try directory(), logs = root.appendingPathComponent("codex")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let events: [[String: Any]] = [
+            ["type": "session_meta", "payload": ["id": "paged", "cwd": "/tmp/paged-project"]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["text": "first page"]]]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["text": "second page"]]]],
+            ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["text": "third page"]]]]
+        ]
+        try jsonl(events).write(to: logs.appendingPathComponent("rollout-paged.jsonl"), atomically: true, encoding: .utf8)
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: logs, dshRoot: root.appendingPathComponent("dsh"), databaseURL: root.appendingPathComponent("data.sqlite")))
+        let handler = MCPHandler(service: service)
+        func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": name, "arguments": arguments]])
+            let payload = await handler.handle(data)
+            let response = try JSONSerialization.jsonObject(with: try XCTUnwrap(payload)) as! [String: Any]
+            let result = try XCTUnwrap(response["result"] as? [String: Any])
+            XCTAssertNil(result["isError"])
+            return try XCTUnwrap((result["content"] as? [[String: Any]])?.first?["text"] as? String)
+        }
+        _ = try await call("memory_scan", [:])
+        let listed = try await call("memory_list_projects", [:])
+        let projectID = try XCTUnwrap(listed.split(separator: "\"").first { $0.count == 36 && $0.contains("-") }.map(String.init))
+        let page = try await call("memory_get_session", ["project": projectID, "agent": "codex", "session_id": "paged", "offset": 1, "limit": 1])
+        XCTAssertTrue(page.contains("second page"), page)
+        XCTAssertFalse(page.contains("first page"), page)
+        XCTAssertFalse(page.contains("third page"), page)
+    }
+
+    func testScanFailureSummaryRedactsPaths() async throws {
+        let root = try directory(), logs = root.appendingPathComponent("codex")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try "{not json}\n".write(to: logs.appendingPathComponent("rollout-bad.jsonl"), atomically: true, encoding: .utf8)
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: logs, dshRoot: root.appendingPathComponent("dsh"), databaseURL: root.appendingPathComponent("data.sqlite")))
+        let handler = MCPHandler(service: service)
+        let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "memory_scan", "arguments": [String: String]()]])
+        let payload = await handler.handle(data)
+        let response = try JSONSerialization.jsonObject(with: try XCTUnwrap(payload)) as! [String: Any]
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertNil(result["isError"])
+        let text = try XCTUnwrap((result["content"] as? [[String: Any]])?.first?["text"] as? String)
+        XCTAssertTrue(text.contains("Malformed JSON"), text)
+        XCTAssertTrue(text.contains("[LOCAL_PATH]"), text)
+        XCTAssertFalse(text.contains(root.path), text)
+        XCTAssertFalse(text.contains("rollout-bad.jsonl"), text)
     }
 
     func testAgentRenameAndProjectMoveStayOnTheSameConversation() async throws {

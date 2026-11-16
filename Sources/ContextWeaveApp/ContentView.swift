@@ -9,14 +9,16 @@ struct ContentView: View {
     @State private var expandedSessionProjects: Set<String> = []
     private let sessionPreviewLimit = 3
     @State private var session: Session?
-    @State private var target = "dsh"
     @State private var sessionStart = 0
     @State private var sessionLoadGeneration = UUID()
     @State private var loadingEarlier = false
     @State private var copied = false
+    @State private var copyFeedback = UUID()
     @State private var agentFilter: String?
     @State private var scrollTarget: SessionID?
     @State private var isAtBottom = true
+    @State private var archivedAgentFilter: String?
+    @State private var archivedPreview: SessionSummary?
     @State private var selectedTab: MainTab = .sessions
     private static let transcriptBottomID = "transcript-bottom"
     private static let transcriptTopID = "transcript-top"
@@ -66,6 +68,20 @@ struct ContentView: View {
             ProjectChoice(id: id, label: (counts[name] ?? 0) > 1 ? "\(name) · \(id.prefix(8))" : name)
         }.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
     }
+    private func noteCopied() {
+        copied = true
+        let token = UUID()
+        copyFeedback = token
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
+            if copyFeedback == token { copied = false }
+        }
+    }
+
+    private func sessionTitle(_ session: Session) -> String {
+        model.sessions.first { $0.id == session.source.id }?.title ?? session.source.id.externalID
+    }
+
     private func projectLabel(_ id: String?) -> String {
         guard let id, let label = projectChoices.first(where: { $0.id == id })?.label else { return String(localized: "handoff.noProject", bundle: .module) }
         return label
@@ -92,11 +108,21 @@ struct ContentView: View {
             guard let request else { return }
             reveal(request.id)
         }
+        .onChange(of: model.revision) { _ in
+            guard let selected, !model.sessions.contains(where: { $0.id == selected }) else { return }
+            self.selected = nil
+            session = nil
+            sessionStart = 0
+            loadingEarlier = false
+            sessionLoadGeneration = UUID()
+        }
     }
 
     @ViewBuilder private var content: some View {
         switch selectedTab {
         case .sessions: sessionsPage
+        case .memory: MemoryPage(projectLabel: projectLabel, openSession: reveal)
+        case .archived: archivedPage
         }
     }
 
@@ -140,12 +166,160 @@ struct ContentView: View {
                 guard self.selected == selected, sessionLoadGeneration == generation, let page else { return }
                 session = page.session
                 sessionStart = page.start
-                target = selected.agent == "codex" ? "dsh" : "codex"
             }
         }
         .onChange(of: agentFilter) { _ in
             if let selected, !filtered.contains(where: { $0.id == selected }) { self.selected = nil }
         }
+    }
+
+    private var archivedFiltered: [SessionSummary] {
+        model.archivedSessions
+            .filter { archivedAgentFilter == nil || $0.source.id.agent == archivedAgentFilter }
+            .sorted {
+                let left = $0.archivedAt ?? 0, right = $1.archivedAt ?? 0
+                if left != right { return left > right }
+                return $0.lastActivity > $1.lastActivity
+            }
+    }
+
+    private var archivedPage: some View {
+        VStack(spacing: 0) {
+            archivedHeader
+            Divider().overlay(Weave.line)
+            ScrollView {
+                if archivedFiltered.isEmpty {
+                    archivedEmpty
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 300, maximum: 420), spacing: 14)],
+                        alignment: .leading,
+                        spacing: 14
+                    ) {
+                        ForEach(archivedFiltered) { item in
+                            Button {
+                                archivedPreview = item
+                            } label: {
+                                ArchivedSessionCard(item: item, project: projectLabel(item.stableProjectID))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 1180)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Weave.canvas)
+        .task { model.start() }
+        .sheet(item: $archivedPreview) { summary in
+            ArchivedPreviewSheet(summary: summary)
+                .environmentObject(model)
+        }
+        .onChange(of: model.archivedSessions.map(\.id)) { _ in
+            if let preview = archivedPreview, !model.archivedSessions.contains(where: { $0.id == preview.id }) {
+                archivedPreview = nil
+            }
+        }
+    }
+
+    private var archivedHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Weave.thread.opacity(0.12))
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Weave.thread)
+                }
+                .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("tab.archived", bundle: .module)
+                        .font(.system(size: 22, weight: .semibold))
+                    Text("archive.subtitle", bundle: .module)
+                        .font(.caption)
+                        .foregroundStyle(Weave.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 620, alignment: .leading)
+                }
+                Spacer(minLength: 8)
+                Text(String(format: String(localized: "archive.count", bundle: .module), archivedFiltered.count))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Weave.muted)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Weave.card))
+                if model.isManualScanning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button {
+                        Task { await model.refresh(manual: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Weave.muted)
+                    .help(Text("handoff.refresh", bundle: .module))
+                }
+            }
+            HStack(spacing: 8) {
+                archivedChip(nil, label: String(localized: "handoff.agent.rail.all", bundle: .module))
+                archivedChip("codex", label: "Codex")
+                archivedChip("dsh", label: "DeepSeek Harness")
+                archivedChip("cursor", label: "Cursor")
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+    }
+
+    private func archivedChip(_ agent: String?, label: String) -> some View {
+        let selected = archivedAgentFilter == agent
+        let tint = agent.map { Weave.agent($0) } ?? Weave.thread
+        return Button {
+            archivedAgentFilter = agent
+        } label: {
+            HStack(spacing: 5) {
+                if let agent {
+                    AgentMark(agent: agent, size: 14)
+                } else {
+                    Image(systemName: "circle.grid.2x2")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(label)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(selected ? tint : Weave.muted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(selected ? tint.opacity(0.14) : Weave.card))
+            .overlay(Capsule().strokeBorder(selected ? tint.opacity(0.45) : Weave.line))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var archivedEmpty: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "archivebox")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(Weave.muted)
+            Text("archive.emptyTitle", bundle: .module)
+                .font(.title3.weight(.semibold))
+            Text("archive.emptyBody", bundle: .module)
+                .font(.callout)
+                .foregroundStyle(Weave.muted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 110)
+        .padding(.bottom, 40)
     }
 
     private var sessionList: some View {
@@ -375,39 +549,45 @@ struct ContentView: View {
     }
 
     private func transcriptBar(_ session: Session) -> some View {
-        HStack(spacing: 10) {
-            AgentPill(agent: session.source.id.agent)
-            if let state = model.sessions.first(where: { $0.id == session.source.id })?.runState {
-                RunBadge(state: state)
-            }
-            Text(projectLabel(session.stableProjectID))
-                .font(.caption)
-                .foregroundStyle(Weave.muted)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 8)
-            Picker(String(localized: "handoff.target", bundle: .module), selection: $target) {
-                Text("Codex").tag("codex")
-                Text("DeepSeek Harness").tag("dsh")
-                Text("Cursor").tag("cursor")
-            }
-            .pickerStyle(.menu)
-            .frame(width: 168)
-            Button {
-                guard let projectID = session.stableProjectID else { return }
-                Task {
-                    if let context = await model.context(project: projectID, target: target) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(context, forType: .string)
-                        copied = true
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                AgentPill(agent: session.source.id.agent)
+                if let state = model.sessions.first(where: { $0.id == session.source.id })?.runState {
+                    RunBadge(state: state)
                 }
-            } label: {
-                Label(copied ? String(localized: "handoff.copied", bundle: .module) : String(localized: "handoff.copy", bundle: .module), systemImage: copied ? "checkmark" : "doc.on.doc")
+                Text(sessionTitle(session))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Weave.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                Text(projectLabel(session.stableProjectID))
+                    .font(.caption)
+                    .foregroundStyle(Weave.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .disabled(session.stableProjectID == nil || !model.workspaces.contains(where: { $0.projectID == session.stableProjectID }))
+            HStack(spacing: 10) {
+                SessionIdentityText(id: session.source.id.externalID)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    guard let projectID = session.stableProjectID else { return }
+                    let id = session.source.id
+                    Task {
+                        if let context = await model.continuationText(project: projectID, session: id) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(context, forType: .string)
+                            noteCopied()
+                        }
+                    }
+                } label: {
+                    Label(copied ? String(localized: "handoff.copied", bundle: .module) : String(localized: "handoff.copy", bundle: .module), systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .fixedSize()
+                .disabled(session.stableProjectID == nil || !model.workspaces.contains(where: { $0.projectID == session.stableProjectID }))
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -570,6 +750,21 @@ private struct RunBadge: View {
     }
 }
 
+private struct SessionIdentityText: View {
+    let id: String
+
+    var body: some View {
+        Text(id)
+            .font(.caption2.monospaced())
+            .foregroundStyle(Weave.muted)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(id)
+            .accessibilityLabel(Text("handoff.session.id", bundle: .module))
+            .accessibilityValue(Text(id))
+    }
+}
+
 private struct SessionCard: View {
     let item: SessionSummary
     let active: Bool
@@ -577,12 +772,15 @@ private struct SessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(item.title)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineSpacing(2)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .lineSpacing(2)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SessionIdentityText(id: item.source.id.externalID)
+                }
                 if item.lastActivity > 0 {
                     Text(Self.relative(item.lastActivity))
                         .font(.caption)
@@ -628,7 +826,7 @@ private struct SessionCard: View {
     }
 }
 
-private struct AgentPill: View {
+struct AgentPill: View {
     let agent: String
     var compact = false
 

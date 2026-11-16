@@ -10,6 +10,10 @@ struct SessionFocus: Equatable {
 @MainActor
 final class HandoffModel: ObservableObject {
     @Published var sessions: [SessionSummary] = []
+    @Published var archivedSessions: [SessionSummary] = []
+    @Published var memories: [ProjectMemory] = []
+    @Published private(set) var extractingMemory: SessionID?
+    @Published var memoryExtractionMessage: String?
     @Published var projects: [String] = []
     @Published var workspaces: [WorkspaceBinding] = []
     @Published var report = CaptureReport()
@@ -26,6 +30,7 @@ final class HandoffModel: ObservableObject {
     private var service: HandoffService?
     private var watcher: SourceWatcher?
     private var cadence: Task<Void, Never>?
+    private var liveCheck: Task<Void, Never>?
     private var active = false
     private var draining = false
     private var queuedSources: Set<String> = []
@@ -82,6 +87,8 @@ final class HandoffModel: ObservableObject {
         service = nil
         configureService(newConfiguration)
         sessions = []
+        archivedSessions = []
+        memories = []
         projects = []
         workspaces = []
         report = CaptureReport()
@@ -144,6 +151,43 @@ final class HandoffModel: ObservableObject {
         }
     }
 
+    func reviewMemory(_ memory: ProjectMemory, status: String) {
+        guard let service else { return }
+        Task {
+            do {
+                try await service.setMemoryStatus(id: memory.id, status: status)
+                await publishScanProgress(service)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    func moveMemory(_ memory: ProjectMemory, scope: String) {
+        guard let service else { return }
+        Task {
+            do {
+                try await service.setMemoryScope(id: memory.id, scope: scope)
+                await publishScanProgress(service)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    func extractMemory(_ id: SessionID) {
+        guard let service, extractingMemory == nil else { return }
+        let model = settingsStore.settings.memoryModel
+        extractingMemory = id
+        memoryExtractionMessage = nil
+        Task {
+            defer { extractingMemory = nil }
+            do {
+                let url = try model.validatedEndpoint()
+                let key = try MemoryModelKeychain.load(endpoint: url)
+                try await service.extractSemanticMemory(session: id, model: model, apiKey: key)
+                await publishScanProgress(service)
+                memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .module)
+            } catch { memoryExtractionMessage = error.localizedDescription }
+        }
+    }
+
     private var publishingScan = false
 
     private func publishScanProgress(_ source: HandoffService) async {
@@ -152,6 +196,8 @@ final class HandoffModel: ObservableObject {
         defer { publishingScan = false }
         do {
             let loaded = try await source.displaySessions()
+            let loadedArchived = try await source.displayArchivedSessions()
+            let loadedMemories = try await source.displayMemories()
             let loadedProjects = try await source.projects()
             let loadedWorkspaces = try await source.workspaceBindings()
             let loadedStats = try await source.stats()
@@ -161,6 +207,8 @@ final class HandoffModel: ObservableObject {
             stats = loadedStats
             noteFinishedRuns(from: loaded)
             sessions = loaded
+            archivedSessions = loadedArchived
+            memories = loadedMemories
             error = nil
             revision += 1
         } catch {
@@ -171,22 +219,29 @@ final class HandoffModel: ObservableObject {
 
     private func noteFinishedRuns(from loaded: [SessionSummary]) {
         var ended: [SessionSummary] = []
-        var waiting: [String] = []
+        var waiting: [SessionSummary] = []
         for session in loaded {
             guard let state = session.runState else { continue }
             let previous = observedRuns[session.id]
             if previous == .running || previous == .awaitingApproval, state == .finished || state == .aborted {
                 ended.append(session)
             }
-            if let previous, previous != .awaitingApproval, state == .awaitingApproval {
-                waiting.append(Self.agentName(session.id.agent))
+            // An approval that is still open on the first look is current work, not old history.
+            if previous != .awaitingApproval, state == .awaitingApproval {
+                waiting.append(session)
             }
         }
         observedRuns = Dictionary(uniqueKeysWithValues: loaded.compactMap { session in
             session.runState.map { (session.id, $0) }
         })
-        for name in Self.unique(waiting) {
-            RunNotifier.shared.deliver(title: name, body: String(localized: "handoff.run.approval", bundle: .module))
+        for session in waiting {
+            let agent = Self.agentName(session.id.agent)
+            RunNotifier.shared.deliver(
+                title: String(format: String(localized: "handoff.run.approvalTitle", bundle: .module), agent),
+                subtitle: projectName(session),
+                body: Self.noticeSubject(session),
+                session: session.id
+            )
         }
         for session in ended {
             let agent = Self.agentName(session.id.agent)
@@ -214,12 +269,6 @@ final class HandoffModel: ObservableObject {
         return String(subject.prefix(79)) + "…"
     }
 
-    private static func unique(_ names: [String]) -> [String] {
-        var unique: [String] = []
-        for name in names where !unique.contains(name) { unique.append(name) }
-        return unique
-    }
-
     static func agentName(_ agent: String) -> String {
         switch agent {
         case "dsh": "DeepSeek Harness"
@@ -234,6 +283,19 @@ final class HandoffModel: ObservableObject {
 
     func context(project: String, target: String) async -> String? {
         do { return try await service?.context(project: project, targetAgent: target) } catch { self.error = error.localizedDescription; return nil }
+    }
+
+    /// Clipboard text naming the open conversation so another agent can read it through MCP.
+    func continuationText(project: String, session: SessionID) async -> String? {
+        do {
+            guard let service else { return nil }
+            let brief = try await service.continuation(project: project, session: session)
+            let chinese = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") ?? true
+            return ContinuationPrompt.text(brief, chinese: chinese)
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
     }
 
     private var captureSources: Set<String> {
@@ -276,6 +338,8 @@ final class HandoffModel: ObservableObject {
         watcher = nil
         cadence?.cancel()
         cadence = nil
+        liveCheck?.cancel()
+        liveCheck = nil
         guard active, settingsStore.settings.watchAutomatically else { return }
         let paths = watchPaths
         let watcher = SourceWatcher(paths: paths) { [weak self] changed in
@@ -291,6 +355,15 @@ final class HandoffModel: ObservableObject {
                 do { try await Task.sleep(for: .seconds(interval)) } catch { return }
                 guard !Task.isCancelled else { return }
                 await self?.refresh()
+            }
+        }
+        // A tool approval can be waiting for the user. Check the live logs often enough to notice it.
+        liveCheck = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                guard let self, !Task.isCancelled else { return }
+                let live = self.sessions.contains { $0.runState == .running || $0.runState == .awaitingApproval }
+                if live { await self.refresh(sources: ["codex", "dsh"]) }
             }
         }
     }

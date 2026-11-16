@@ -5,7 +5,7 @@ import CryptoKit
 /// Cursor's local composer storage is an undocumented format. Read one consistent SQLite
 /// snapshot, never mutate it, and only associate conversations with a verified local workspace.
 enum CursorCapture {
-    static let version = "cursor-composer-v3"
+    static let version = "cursor-composer-v4"
     enum Error: Swift.Error { case unavailable; case invalid(String) }
     struct Snapshot: Sendable {
         let cursorPath: String
@@ -29,8 +29,21 @@ enum CursorCapture {
         guard sqlite3_exec(db, "BEGIN", nil, nil, nil) == SQLITE_OK else { throw Error.invalid("Unable to read Cursor snapshot") }
         defer { sqlite3_exec(db, "ROLLBACK", nil, nil, nil) }
         let workspaces = workspacePaths(userRoot: userRoot)
+        // Cursor's schema has evolved; older builds may not have isArchived.
+        var hasArchivedColumn = false
+        var tableInfo: OpaquePointer?
+        if sqlite3_prepare_v2(db, "PRAGMA table_info(composerHeaders)", -1, &tableInfo, nil) == SQLITE_OK, let tableInfo {
+            defer { sqlite3_finalize(tableInfo) }
+            while sqlite3_step(tableInfo) == SQLITE_ROW {
+                if let name = sqlite3_column_text(tableInfo, 1), String(cString: name) == "isArchived" {
+                    hasArchivedColumn = true
+                    break
+                }
+            }
+        }
+        let archivedFilter = hasArchivedColumn ? " AND COALESCE(isArchived, 0)=0" : ""
         var query: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT composerId, workspaceId, value FROM composerHeaders WHERE COALESCE(isSubagent, 0)=0", -1, &query, nil) == SQLITE_OK, let query else {
+        guard sqlite3_prepare_v2(db, "SELECT composerId, workspaceId, value FROM composerHeaders WHERE COALESCE(isSubagent, 0)=0" + archivedFilter, -1, &query, nil) == SQLITE_OK, let query else {
             throw Error.invalid("Unsupported Cursor database schema (composerHeaders)")
         }
         defer { sqlite3_finalize(query) }

@@ -32,6 +32,7 @@ struct SettingsView: View {
                     switch selection ?? .agents {
                     case .agents: AgentsSettingsView()
                     case .capture: CaptureSettingsView()
+                    case .memoryModel: MemoryModelSettingsView()
                     case .appearance: AppearanceSettingsView()
                     case .about: AboutSettingsView()
                     }
@@ -46,7 +47,7 @@ struct SettingsView: View {
     }
 
     private enum Panel: String, CaseIterable, Identifiable {
-        case agents, capture, appearance, about
+        case agents, capture, memoryModel, appearance, about
 
         var id: String { rawValue }
 
@@ -54,6 +55,7 @@ struct SettingsView: View {
             switch self {
             case .agents: String(localized: "settings.section.agents", bundle: .module)
             case .capture: String(localized: "settings.section.capture", bundle: .module)
+            case .memoryModel: String(localized: "settings.section.memoryModel", bundle: .module)
             case .appearance: String(localized: "settings.section.appearance", bundle: .module)
             case .about: String(localized: "settings.section.about", bundle: .module)
             }
@@ -63,11 +65,107 @@ struct SettingsView: View {
             switch self {
             case .agents: "point.3.connected.trianglepath.dotted"
             case .capture: "arrow.triangle.2.circlepath"
+            case .memoryModel: "brain.head.profile"
             case .appearance: "circle.lefthalf.filled"
             case .about: "info.circle"
             }
         }
     }
+}
+
+// MARK: - Memory model
+
+private struct MemoryModelSettingsView: View {
+    @EnvironmentObject private var store: SettingsStore
+    @State private var endpoint = ""
+    @State private var modelName = ""
+    @State private var apiKey = ""
+    @State private var hasKey = false
+    @State private var feedback: String?
+    @State private var testing = false
+
+    private var configuration: MemoryModelConfiguration { MemoryModelConfiguration(endpoint: endpoint, model: modelName) }
+
+    var body: some View {
+        SettingsPage(title: String(localized: "settings.section.memoryModel", bundle: .module), subtitle: String(localized: "settings.model.intro", bundle: .module)) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("settings.model.presets", bundle: .module)
+                        Spacer()
+                        Button("DeepSeek") { endpoint = "https://api.deepseek.com/chat/completions"; checkKey() }
+                        Button("OpenAI") { endpoint = "https://api.openai.com/v1/chat/completions"; checkKey() }
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("settings.model.endpoint", bundle: .module).font(.caption.weight(.semibold))
+                        TextField("https://…/chat/completions", text: $endpoint).textFieldStyle(.roundedBorder)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("settings.model.name", bundle: .module).font(.caption.weight(.semibold))
+                        TextField(String(localized: "settings.model.nameHint", bundle: .module), text: $modelName).textFieldStyle(.roundedBorder)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Text("API Key").font(.caption.weight(.semibold))
+                            Spacer()
+                            Text(hasKey ? "settings.model.keySaved" : "settings.model.keyMissing", bundle: .module).font(.caption).foregroundStyle(.secondary)
+                        }
+                        SecureField(String(localized: "settings.model.keyHint", bundle: .module), text: $apiKey).textFieldStyle(.roundedBorder)
+                    }
+                    Text("settings.model.privacy", bundle: .module).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }.padding(8)
+            }
+            HStack {
+                Button(String(localized: "settings.model.save", bundle: .module)) { save() }.buttonStyle(.borderedProminent)
+                Button(String(localized: "settings.model.test", bundle: .module)) { test() }.disabled(testing)
+                Button(String(localized: "settings.model.removeKey", bundle: .module)) { removeKey() }.disabled(!hasKey)
+                if testing { ProgressView().controlSize(.small) }
+                Spacer()
+            }
+            Text("settings.model.testHint", bundle: .module).font(.caption).foregroundStyle(.secondary)
+            Text("settings.model.notIntegrated", bundle: .module).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let feedback { Text(feedback).font(.callout).textSelection(.enabled) }
+        }
+        .onAppear { endpoint = store.settings.memoryModel.endpoint; modelName = store.settings.memoryModel.model; checkKey() }
+        .onChange(of: endpoint) { _ in apiKey = ""; checkKey() }
+    }
+
+    private func checkKey() {
+        do { hasKey = try configuration.validatedEndpoint().withKeychainValue != nil }
+        catch { hasKey = false }
+    }
+    private func save() {
+        do {
+            let url = try configuration.validatedEndpoint()
+            guard !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelConfigurationError.missingModel }
+            if !apiKey.isEmpty { try MemoryModelKeychain.save(apiKey, endpoint: url); apiKey = "" }
+            let value = configuration
+            store.update { $0.memoryModel = value }
+            checkKey()
+            feedback = String(localized: "settings.model.saved", bundle: .module)
+        } catch { feedback = error.localizedDescription }
+    }
+    private func removeKey() {
+        do { try MemoryModelKeychain.remove(endpoint: configuration.validatedEndpoint()); apiKey = ""; hasKey = false; feedback = String(localized: "settings.model.removed", bundle: .module) }
+        catch { feedback = error.localizedDescription }
+    }
+    private func test() {
+        let current = configuration, typedKey = apiKey
+        testing = true
+        Task {
+            defer { testing = false }
+            do {
+                let url = try current.validatedEndpoint()
+                let key = typedKey.isEmpty ? try MemoryModelKeychain.load(endpoint: url) : typedKey
+                try await MemoryModelConnection.test(configuration: current, apiKey: key)
+                feedback = String(localized: "settings.model.success", bundle: .module)
+            } catch { feedback = error.localizedDescription }
+        }
+    }
+}
+
+private extension URL {
+    var withKeychainValue: String? { get throws { try MemoryModelKeychain.load(endpoint: self) } }
 }
 
 // MARK: - Agents
