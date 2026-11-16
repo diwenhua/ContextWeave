@@ -198,11 +198,17 @@
 "settings.model.test" = "Test connection";
 "settings.model.removeKey" = "Remove key";
 "settings.model.testHint" = "The test sends a fixed short message and may incur a small charge; conversation history is not sent.";
-"settings.model.notIntegrated" = "Model extraction is available manually on a session memory page; history is not sent automatically.";
+"settings.model.notIntegrated" = "Run extraction once or enable it after scans for individual conversations on the session memory page.";
 "settings.model.saved" = "Model configuration saved.";
 "settings.model.removed" = "The key for this endpoint was removed.";
 "settings.model.success" = "Connection succeeded.";
 
 "memory.semantic.run" = "Extract this session with model";
-"memory.semantic.privacy" = "Sends redacted user and assistant content from the last 40 messages to the configured model service; charges may apply. Redaction may not catch all sensitive information.";
+"memory.semantic.privacy" = "Sends redacted user and assistant content in batches of 40 messages to the configured model service; charges may apply. Redaction may not catch all sensitive information.";
 "memory.semantic.success" = "Extraction complete; candidates await review.";
+
+"memory.semantic.watch" = "Automatically extract this conversation after scans";
+"memory.replace" = "Replace previous…";
+"memory.status.superseded" = "Superseded";
+"memory.processed" = "%d messages processed";
+"memory.evidence" = "View cited message";

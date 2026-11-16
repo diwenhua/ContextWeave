@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public struct CaptureConfiguration: Sendable, Equatable {
     public let codexRoot: URL
@@ -82,10 +83,37 @@ public actor HandoffService {
         return report
     }
 
-    public func extractSemanticMemory(session id: SessionID, model: MemoryModelConfiguration, apiKey: String?) async throws {
-        let messages = try store.latestMessages(id, limit: 40, skip: 0)
-        let result = try await SemanticMemoryClient.extract(configuration: model, apiKey: apiKey, messages: messages)
-        try store.saveSemanticMemory(result, session: id, expected: messages)
+    public func watchMemory(_ id: SessionID, model: MemoryModelConfiguration?) throws { try store.watch(id, model: model) }
+    public func watchedSessions(_ model: MemoryModelConfiguration) throws -> Set<SessionID> {
+        Set(try store.watched(model, due: false).map { $0.0 })
+    }
+    public func pendingExtractions(_ model: MemoryModelConfiguration) throws -> [(SessionID,String)] {
+        try store.watched(model, due: true)
+    }
+    public func finishWatch(_ id: SessionID, revision: String, success: Bool) throws {
+        try store.finishWatch(id, revision: revision, success: success)
+    }
+
+    public func extractSemanticMemory(session id: SessionID, model: MemoryModelConfiguration, apiKey: String?, transport: URLSession? = nil, progress: (@Sendable (Int) async -> Void)? = nil) async throws {
+        var offset = 0
+        var prior = ""
+        while true {
+            try Task.checkCancellation()
+            let messages = try store.semanticPage(id, offset: offset, limit: 40)
+            guard !messages.isEmpty else { return }
+            let fields = [prior, model.endpoint, model.model] + messages.flatMap { [$0.id, $0.role.rawValue, $0.content] }
+            let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
+            if let cached = try store.cachedCheckpoint(id, offset: offset, digest: digest) {
+                prior = cached
+            } else {
+                let result = try await SemanticMemoryClient.extract(configuration: model, apiKey: apiKey, messages: messages, prior: prior, transport: transport)
+                try store.saveSemanticMemory(result, session: id, expected: messages, offset: offset, digest: digest)
+                prior = result.checkpoint
+            }
+            offset += messages.count
+            await progress?(offset)
+            if messages.count < 40 { return }
+        }
     }
 
 
@@ -308,6 +336,16 @@ public actor HandoffService {
     public func setMemoryStatus(id: String, status: String) throws {
         try store.setMemoryStatus(id: id, status: status)
     }
+    public func replaceMemory(_ old: String, with new: String) throws { try store.replaceMemory(old, with: new) }
+
+    public func evidence(project: String, id: SessionID, message: String) throws -> SessionMessage {
+        let project = try resolveProjectReference(project)
+        guard try session(id, belongsToWorkspace: project), let source = try store.evidence(id, message: message) else {
+            throw CaptureError.invalid("Source message not found in this project")
+        }
+        return SessionMessage(id: source.id, role: source.role, content: try pathRedactor(project: project).redact(source.content), timestampMilliseconds: source.timestampMilliseconds)
+    }
+
     public func setMemoryScope(id: String, scope: String) throws {
         try store.setMemoryScope(id: id, scope: scope)
     }
@@ -371,9 +409,8 @@ public actor HandoffService {
         return try store.log(entry)
     }
     /// Lexical baseline: English words and CJK bigrams. No semantic claims or network calls.
-    static func rankMemories(_ memories: [ProjectMemory], task: String?) -> [ProjectMemory] {
-        guard let task, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return memories }
-        let normalized = task.lowercased()
+    static func rankMemories(_ memories: [ProjectMemory], task: String?, source: SessionID? = nil) -> [ProjectMemory] {
+        let normalized = (task ?? "").lowercased()
         var tokens = normalized.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 2 }
         let characters = Array(normalized)
         if characters.count >= 2 {
@@ -388,7 +425,13 @@ public actor HandoffService {
         }
         return memories.enumerated().sorted {
             let left = score($0.element), right = score($1.element)
-            return left == right ? $0.offset < $1.offset : left > right
+            if left != right { return left > right }
+            func priority(_ item: ProjectMemory) -> Int {
+                let sameSource = item.agent == source?.agent && item.externalID == source?.externalID
+                return (sameSource ? 2 : 0) + (item.scope == "project" ? 1 : 0)
+            }
+            let a = priority($0.element), b = priority($1.element)
+            return a == b ? $0.offset < $1.offset : a > b
         }.map(\.element)
     }
 
@@ -409,7 +452,7 @@ public actor HandoffService {
             if text.count <= remaining { output += text; remaining -= text.count }
             else { output += String(text.prefix(max(0, remaining - 30))) + "\n[section truncated]\n"; remaining = 0 }
         }
-        let memories = Self.rankMemories(try store.memories(project: project, limit: 1000), task: task).prefix(16)
+        let memories = Self.rankMemories(try store.memories(project: project, limit: 1000), task: task, source: selected?.id).prefix(16)
         if memories.isEmpty {
             add("\n## Memory\nNo compressed memory for this project yet.\n")
         } else {

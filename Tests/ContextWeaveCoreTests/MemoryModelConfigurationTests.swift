@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import ContextWeaveCore
 
@@ -53,5 +54,55 @@ extension MemoryModelConfigurationTests {
         let result = try await SemanticMemoryClient.extract(configuration: MemoryModelConfiguration(endpoint: "http://127.0.0.1/test", model: "mock"), apiKey: nil, messages: [message], transport: session)
         XCTAssertEqual(result.candidates.first?.sourceMessageID, "42")
         XCTAssertEqual(result.checkpoint, "继续开发")
+    }
+}
+
+extension MemoryModelConfigurationTests {
+    func testResumeFromSavedBatchAndReplaceConfirmedDecision() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let db = root.appendingPathComponent("fixture.sqlite")
+        let store = try SessionStore(url: db)
+        let id = try SessionID(agent: "codex", externalID: "resume")
+        let path = root.appendingPathComponent("source").path
+        let messages = (2...42).map { SessionMessage(id: String($0), role: .user, content: "fixture", timestampMilliseconds: Int64($0)) }
+        let session = Session(source: SessionSource(id: id, sourcePath: path), projectID: root.path, messages: messages)
+        let cursor = FileCursor(inode: "1", parserVersion: "test", observedSize: 1, observedMtimeMS: 1, offset: 1, pending: "", lineIndex: 1, externalID: id.externalID, project: root.path, ordinals: false, rejected: false)
+        try store.commitCapture(path: path, cursor: cursor, session: session, fullReplace: true, previousAgent: nil, previousExternalID: nil, expectedCursor: nil)
+        let model = MemoryModelConfiguration(endpoint: "http://127.0.0.1/test", model: "mock")
+        let page = try store.semanticPage(id, offset: 0, limit: 40)
+        XCTAssertEqual(page.count, 40)
+        XCTAssertEqual(try store.semanticPage(id, offset: 40, limit: 40).map(\.id), ["42"])
+        let fields = ["", model.endpoint, model.model] + page.flatMap { [$0.id, $0.role.rawValue, $0.content] }
+        let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
+        try store.saveSemanticMemory(.init(checkpoint: "first batch", candidates: [.init(kind: "decision", content: "previous storage choice", sourceMessageID: page[0].id)]), session: id, expected: page, digest: digest)
+        try store.watch(id, model: model)
+        let revision = try XCTUnwrap(store.watched(model, due: true).first?.1)
+        try store.finishWatch(id, revision: revision, success: false)
+        XCTAssertTrue(try store.watched(model, due: true).isEmpty)
+        XCTAssertEqual(try store.watched(model, due: false).count, 1)
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ModelMockProtocol.self]
+        let transport = URLSession(configuration: config)
+        defer { transport.invalidateAndCancel() }
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: root, dshRoot: root, databaseURL: db))
+        // The mock always cites 42. Requesting the cached first batch would fail citation validation.
+        try await service.extractSemanticMemory(session: id, model: model, apiKey: nil, transport: transport)
+        let memories = try await service.sessionMemory(id)
+        let old = try XCTUnwrap(memories.first { $0.content == "previous storage choice" })
+        let new = try XCTUnwrap(memories.first { $0.sourceMessageID == "42" })
+        try await service.setMemoryStatus(id: old.id, status: "confirmed")
+        try await service.replaceMemory(old.id, with: new.id)
+        let handoff = try await service.context(project: root.path, targetAgent: "dsh")
+        XCTAssertTrue(handoff.contains(new.content))
+        XCTAssertFalse(handoff.contains(old.content))
+        let source = try await service.evidence(project: new.stableProjectID, id: id, message: "42")
+        XCTAssertEqual(source.content, "fixture")
+        do {
+            _ = try await service.evidence(project: root.appendingPathComponent("another").path, id: id, message: "42")
+            XCTFail("Returned evidence outside project")
+        } catch CaptureError.invalid { }
     }
 }

@@ -13,6 +13,9 @@ final class HandoffModel: ObservableObject {
     @Published var archivedSessions: [SessionSummary] = []
     @Published var memories: [ProjectMemory] = []
     @Published private(set) var extractingMemory: SessionID?
+    @Published private(set) var processedMessages = 0
+    @Published var watchedSessions: Set<SessionID> = []
+    private var automaticWorker: Task<Void,Never>?
     @Published var memoryExtractionMessage: String?
     @Published var projects: [String] = []
     @Published var workspaces: [WorkspaceBinding] = []
@@ -35,6 +38,7 @@ final class HandoffModel: ObservableObject {
     private var draining = false
     private var queuedSources: Set<String> = []
     private var busySources: Set<String> = []
+    private var appliedModel: MemoryModelConfiguration
     private var appliedWatchAutomatically = true
     private var appliedScanIntervalSeconds = AppSettings.defaultScanIntervalSeconds
     private var subscription: AnyCancellable?
@@ -42,6 +46,7 @@ final class HandoffModel: ObservableObject {
     private var serviceGeneration = 0
 
     init(settings: SettingsStore) {
+        appliedModel = settings.settings.memoryModel
         settingsStore = settings
         configuration = settings.settings.captureConfiguration()
         appliedWatchAutomatically = settings.settings.watchAutomatically
@@ -74,6 +79,18 @@ final class HandoffModel: ObservableObject {
     /// Applies path/cadence changes made in Settings.
     func apply(_ newSettings: AppSettings) {
         let newConfiguration = newSettings.captureConfiguration()
+        if appliedModel != newSettings.memoryModel || newConfiguration != configuration {
+            automaticWorker?.cancel()
+            appliedModel = newSettings.memoryModel
+            watchedSessions = []
+            if let service, newConfiguration == configuration {
+                let model = appliedModel
+                Task {
+                    let watches = try? await service.watchedSessions(model)
+                    if self.service === service, appliedModel == model { watchedSessions = watches ?? [] }
+                }
+            }
+        }
         let cadenceChanged = appliedWatchAutomatically != newSettings.watchAutomatically
             || appliedScanIntervalSeconds != newSettings.scanIntervalSeconds
         appliedWatchAutomatically = newSettings.watchAutomatically
@@ -148,6 +165,7 @@ final class HandoffModel: ObservableObject {
             }
             report = scanned
             await publishScanProgress(service)
+            startAutomaticWorker(service)
         }
     }
 
@@ -156,6 +174,16 @@ final class HandoffModel: ObservableObject {
         Task {
             do {
                 try await service.setMemoryStatus(id: memory.id, status: status)
+                await publishScanProgress(service)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    func replaceMemory(_ old: ProjectMemory, with new: ProjectMemory) {
+        guard let service else { return }
+        Task {
+            do {
+                try await service.replaceMemory(old.id, with: new.id)
                 await publishScanProgress(service)
             } catch { self.error = error.localizedDescription }
         }
@@ -171,17 +199,71 @@ final class HandoffModel: ObservableObject {
         }
     }
 
+    func watch(_ id: SessionID, enabled: Bool) {
+        guard let service else { return }
+        let model = settingsStore.settings.memoryModel
+        Task {
+            do {
+                try await service.watchMemory(id, model: enabled ? model : nil)
+                watchedSessions = try await service.watchedSessions(model)
+                if !enabled, extractingMemory == id { automaticWorker?.cancel() }
+                if enabled { startAutomaticWorker(service) }
+            } catch { memoryExtractionMessage = error.localizedDescription }
+        }
+    }
+
+    private func startAutomaticWorker(_ service: HandoffService) {
+        guard automaticWorker == nil else { return }
+        let model = settingsStore.settings.memoryModel
+        automaticWorker = Task {
+            defer { automaticWorker = nil }
+            do {
+                watchedSessions = try await service.watchedSessions(model)
+                for (id, revision) in try await service.pendingExtractions(model) {
+                    guard self.service === service, model == settingsStore.settings.memoryModel,
+                          !Task.isCancelled, extractingMemory == nil else { break }
+                    guard watchedSessions.contains(id) else { continue }
+                    extractingMemory = id
+                    processedMessages = 0
+                    defer { extractingMemory = nil }
+                    do {
+                        let key = try MemoryModelKeychain.load(endpoint: model.validatedEndpoint())
+                        try await extract(service, id: id, model: model, key: key)
+                        try await service.finishWatch(id, revision: revision, success: true)
+                        await publishScanProgress(service)
+                    } catch {
+                        try await service.finishWatch(id, revision: revision, success: false)
+                        memoryExtractionMessage = error.localizedDescription
+                    }
+                }
+            } catch { memoryExtractionMessage = error.localizedDescription }
+        }
+    }
+
+    func evidence(for memory: ProjectMemory) async throws -> String {
+        guard let service, let message = memory.sourceMessageID else { throw CaptureError.invalid("Source unavailable") }
+        let id = try SessionID(agent: memory.agent, externalID: memory.externalID)
+        return try await service.evidence(project: memory.stableProjectID, id: id, message: message).content
+    }
+
+    private func extract(_ service: HandoffService, id: SessionID, model: MemoryModelConfiguration, key: String?) async throws {
+        try await service.extractSemanticMemory(session: id, model: model, apiKey: key) { count in
+            await MainActor.run { self.processedMessages = count }
+        }
+    }
+
     func extractMemory(_ id: SessionID) {
         guard let service, extractingMemory == nil else { return }
         let model = settingsStore.settings.memoryModel
         extractingMemory = id
+        processedMessages = 0
         memoryExtractionMessage = nil
         Task {
             defer { extractingMemory = nil }
             do {
                 let url = try model.validatedEndpoint()
                 let key = try MemoryModelKeychain.load(endpoint: url)
-                try await service.extractSemanticMemory(session: id, model: model, apiKey: key)
+                try await extract(service, id: id, model: model, key: key)
                 await publishScanProgress(service)
                 memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .module)
             } catch { memoryExtractionMessage = error.localizedDescription }

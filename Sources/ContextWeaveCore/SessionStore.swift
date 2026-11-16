@@ -88,7 +88,7 @@ final class SessionStore {
         do {
             sqlite3_busy_timeout(db, 10_000)
             let version = try userVersion()
-            guard version <= 11 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 12 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             try run("PRAGMA journal_mode=WAL")
             try run("PRAGMA foreign_keys=ON")
             try migrate()
@@ -152,6 +152,7 @@ final class SessionStore {
                         }
                     }
                     try insertMessages(session, path: path)
+                    try run("UPDATE semantic_watch SET dirty=1,revision=revision+1 WHERE agent=? AND external_id=?", [agent, externalID])
                     let total = try count("SELECT COUNT(*) FROM messages WHERE agent=? AND external_id=?", [agent, externalID])
                     let activity = Int64(try text("SELECT MAX(timestamp) FROM messages WHERE agent=? AND external_id=?", [agent, externalID]) ?? "") ?? 0
                     let storedTitle = try text("SELECT title FROM sessions WHERE agent=? AND external_id=?", [agent, externalID])
@@ -268,20 +269,70 @@ final class SessionStore {
 
     func setMemoryStatus(id: String, status: String) throws {
         guard ["confirmed", "rejected", "candidate"].contains(status) else { throw CaptureError.invalid("Invalid memory status") }
-        try run("UPDATE memories SET status=? WHERE id=? AND status!='checkpoint'", [status, id])
+        try run("UPDATE memories SET status=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [status, id])
+    }
+
+    func replaceMemory(_ old: String, with new: String) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            let valid = try count("""
+                SELECT count(*) FROM memories o JOIN memories n ON n.id=?
+                WHERE o.id=? AND o.status='confirmed' AND n.status='candidate'
+                AND o.kind=n.kind AND o.scope=n.scope
+                AND (o.scope='global' OR o.stable_project_id=n.stable_project_id)
+                AND (o.scope!='session' OR (o.agent=n.agent AND o.external_id=n.external_id))
+                """, [new, old])
+            guard valid == 1 else { throw CaptureError.invalid("Memory pair changed or has incompatible scopes") }
+            try run("UPDATE memories SET status='superseded' WHERE id=?", [old])
+            try run("UPDATE memories SET status='confirmed' WHERE id=?", [new])
+            try run("INSERT INTO memory_replacements VALUES(?,?,unixepoch())", [old,new])
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
+
+    func evidence(_ id: SessionID, message: String) throws -> SessionMessage? {
+        try rows("SELECT message_id,role,content,timestamp FROM messages WHERE agent=? AND external_id=? AND message_id=?", [id.agent,id.externalID,message]).first.map(Self.message(from:))
     }
 
     func setMemoryScope(id: String, scope: String) throws {
         guard ["global", "project", "session"].contains(scope) else { throw CaptureError.invalid("Invalid memory scope") }
-        try run("UPDATE memories SET scope=? WHERE id=? AND status!='checkpoint'", [scope, id])
+        try run("UPDATE memories SET scope=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [scope, id])
     }
 
-    func saveSemanticMemory(_ result: SemanticMemoryExtraction, session id: SessionID, expected: [SessionMessage]) throws {
+    func watch(_ id: SessionID, model: MemoryModelConfiguration?) throws {
+        if let model {
+            try run("INSERT OR REPLACE INTO semantic_watch(agent,external_id,endpoint,model) VALUES(?,?,?,?)", [id.agent,id.externalID,model.endpoint,model.model])
+        } else {
+            try run("DELETE FROM semantic_watch WHERE agent=? AND external_id=?", [id.agent,id.externalID])
+        }
+    }
+
+    func watched(_ model: MemoryModelConfiguration, due: Bool) throws -> [(SessionID, String)] {
+        let filter = due ? " AND w.dirty=1 AND w.retry_at<=unixepoch() AND s.archived_at IS NULL ORDER BY w.failures,w.rowid" : ""
+        return try rows("SELECT w.agent,w.external_id,w.revision FROM semantic_watch w JOIN sessions s USING(agent,external_id) WHERE w.endpoint=? AND w.model=?" + filter, [model.endpoint,model.model]).map {
+            (try SessionID(agent: $0[0] ?? "", externalID: $0[1] ?? ""), $0[2] ?? "0")
+        }
+    }
+
+    func finishWatch(_ id: SessionID, revision: String, success: Bool) throws {
+        let update = success ? "dirty=0,failures=0,retry_at=0" : "failures=failures+1,retry_at=unixepoch()+min(3600,30*(1<<min(failures,7)))"
+        try run("UPDATE semantic_watch SET " + update + " WHERE agent=? AND external_id=? AND revision=?", [id.agent,id.externalID,revision])
+    }
+
+    func semanticPage(_ id: SessionID, offset: Int, limit: Int) throws -> [SessionMessage] {
+        try rows("SELECT message_id,role,content,timestamp FROM messages WHERE agent=? AND external_id=? AND role IN ('user','assistant') ORDER BY ordinal,message_id LIMIT ? OFFSET ?", [id.agent,id.externalID,String(limit),String(offset)]).map(Self.message(from:))
+    }
+
+    func cachedCheckpoint(_ id: SessionID, offset: Int, digest: String) throws -> String? {
+        try text("SELECT checkpoint FROM semantic_batches WHERE agent=? AND external_id=? AND position=? AND digest=?", [id.agent,id.externalID,String(offset),digest])
+    }
+
+    func saveSemanticMemory(_ result: SemanticMemoryExtraction, session id: SessionID, expected: [SessionMessage], offset: Int = 0, digest: String? = nil) throws {
         try run("BEGIN IMMEDIATE")
         do {
             guard let summary = try summary(id), let project = summary.stableProjectID else { throw CaptureError.invalid("Session has no project") }
-            let current = try latestMessages(id, limit: expected.count, skip: 0)
-            guard current.map({ $0.id + "\u{0}" + $0.content }) == expected.map({ $0.id + "\u{0}" + $0.content }) else { throw CaptureError.invalid("Conversation changed during extraction; retry") }
+            let current = try semanticPage(id, offset: offset, limit: expected.count)
+            guard current == expected else { throw CaptureError.invalid("Conversation changed during extraction; retry") }
             let allowed = Set(expected.filter { $0.role == .user }.map(\.id))
             for candidate in result.candidates {
                 guard allowed.contains(candidate.sourceMessageID) else { throw CaptureError.invalid("Invalid memory source") }
@@ -291,6 +342,9 @@ final class SessionStore {
             }
             let checkpointID = "semantic-checkpoint|\(id.agent)|\(id.externalID)"
             try run("INSERT INTO memories(id,stable_project_id,agent,external_id,kind,content,updated_at,status,scope) VALUES(?,?,?,?,?,?,?,'checkpoint','session') ON CONFLICT(id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at,stable_project_id=excluded.stable_project_id", [checkpointID,project,id.agent,id.externalID,"summary",result.checkpoint,String(summary.lastActivity)])
+            if let digest {
+                try run("INSERT OR REPLACE INTO semantic_batches VALUES(?,?,?,?,?)", [id.agent,id.externalID,String(offset),digest,result.checkpoint])
+            }
             try run("COMMIT")
         } catch { try? run("ROLLBACK"); throw error }
     }
@@ -429,7 +483,7 @@ final class SessionStore {
         try run("BEGIN IMMEDIATE")
         do {
             let version = try userVersion()
-            guard version <= 11 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 12 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             if version < 2 {
                 if try columns("sessions").contains("payload") { try migratePayload() }
                 try createSchema()
@@ -505,6 +559,12 @@ final class SessionStore {
             if version < 9 { try run("PRAGMA user_version = 9") }
             if version < 10 { try run("PRAGMA user_version = 10") }
             if version < 11 { try run("PRAGMA user_version = 11") }
+            if version < 12 {
+                try run("CREATE TABLE IF NOT EXISTS semantic_batches(agent TEXT, external_id TEXT, position INTEGER, digest TEXT NOT NULL, checkpoint TEXT NOT NULL, PRIMARY KEY(agent,external_id,position))")
+                try run("CREATE TABLE IF NOT EXISTS semantic_watch(agent TEXT, external_id TEXT, endpoint TEXT NOT NULL, model TEXT NOT NULL, dirty INTEGER DEFAULT 1, revision INTEGER DEFAULT 0, failures INTEGER DEFAULT 0, retry_at INTEGER DEFAULT 0, PRIMARY KEY(agent,external_id))")
+                try run("CREATE TABLE IF NOT EXISTS memory_replacements(old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL, changed_at INTEGER NOT NULL)")
+                try run("PRAGMA user_version = 12")
+            }
             try run("COMMIT")
         } catch { try? run("ROLLBACK"); throw error }
     }

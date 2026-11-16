@@ -378,12 +378,16 @@ struct MemoryPage: View {
                     .font(.caption)
                     .foregroundStyle(Weave.muted)
                     .lineLimit(1)
+                Toggle(String(localized: "memory.semantic.watch", bundle: .module), isOn: Binding(get: { model.watchedSessions.contains(id) }, set: { model.watch(id, enabled: $0) }))
                 Text("memory.semantic.privacy", bundle: .module)
                     .font(.caption).foregroundStyle(Weave.muted).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button(String(localized: "memory.semantic.run", bundle: .module)) { model.extractMemory(id) }
                         .disabled(model.extractingMemory != nil)
-                    if model.extractingMemory == id { ProgressView().controlSize(.small) }
+                    if model.extractingMemory == id {
+                        ProgressView().controlSize(.small)
+                        Text(String(format: String(localized: "memory.processed", bundle: .module), model.processedMessages)).font(.caption)
+                    }
                     if let message = model.memoryExtractionMessage { Text(message).font(.caption).foregroundStyle(Weave.muted) }
                 }
             }
@@ -631,6 +635,7 @@ private struct MemoryEntry: View {
     @EnvironmentObject private var model: HandoffModel
     let memory: ProjectMemory
     var showsAgent = true
+    @State private var evidenceText: String?
     var sourceTitle: String?
     var onOpenSource: (() -> Void)?
 
@@ -659,6 +664,17 @@ private struct MemoryEntry: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
+                if memory.sourceMessageID != nil {
+                    Button(String(localized: "memory.evidence", bundle: .module)) {
+                        Task {
+                            do { evidenceText = try await model.evidence(for: memory) }
+                            catch { evidenceText = error.localizedDescription }
+                        }
+                    }
+                    .popover(isPresented: Binding(get: { evidenceText != nil }, set: { if !$0 { evidenceText = nil } })) {
+                        ScrollView { Text(evidenceText ?? "").textSelection(.enabled).padding() }.frame(width: 400, height: 220)
+                    }
+                }
                 if let sourceTitle {
                     Text(sourceTitle)
                         .lineLimit(1)
@@ -677,8 +693,22 @@ private struct MemoryEntry: View {
             }
             .font(.caption)
             .foregroundStyle(Weave.muted)
-            if memory.status != "checkpoint" {
+            if memory.status != "checkpoint" && memory.status != "superseded" {
                 HStack(spacing: 8) {
+                    if memory.status == "candidate" {
+                        let matches = model.memories.filter { old in
+                            old.status == "confirmed" && old.scope == memory.scope && old.kind == memory.kind &&
+                            (old.scope == "global" || old.stableProjectID == memory.stableProjectID) &&
+                            (old.scope != "session" || (old.agent == memory.agent && old.externalID == memory.externalID))
+                        }
+                        if !matches.isEmpty {
+                            Menu(String(localized: "memory.replace", bundle: .module)) {
+                                ForEach(matches, id: \.id) { old in
+                                    Button(old.content) { model.replaceMemory(old, with: memory) }
+                                }
+                            }
+                        }
+                    }
                     if memory.status != "confirmed" {
                         Button(String(localized: "memory.confirm", bundle: .module)) { model.reviewMemory(memory, status: "confirmed") }
                     }
