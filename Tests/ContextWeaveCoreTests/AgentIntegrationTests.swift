@@ -25,6 +25,25 @@ final class AgentIntegrationTests: XCTestCase {
         _ = try AgentIntegration.configureCursor(executable: nil, home: root)
         XCTAssertEqual(AgentIntegration.cursorStatus(home: root).state, .notConfigured)
     }
+
+    func testAntigravityEmptyFileStatusAndConnectionRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configFile = root.appendingPathComponent("mcp_config.json")
+        try Data().write(to: configFile)
+
+        XCTAssertEqual(AgentIntegration.antigravityStatus(home: root).state, .notConfigured)
+        _ = try AgentIntegration.configureAntigravity(executable: "/usr/bin/true", home: root)
+        let connected = AgentIntegration.antigravityStatus(home: root)
+        XCTAssertEqual(connected.state, .connected)
+        XCTAssertEqual(connected.helperPath, "/usr/bin/true")
+        XCTAssertEqual(connected.configPath, configFile.path)
+
+        _ = try AgentIntegration.configureAntigravity(executable: nil, home: root)
+        XCTAssertEqual(AgentIntegration.antigravityStatus(home: root).state, .notConfigured)
+        XCTAssertThrowsError(try AgentIntegration.antigravityConfiguration(#"{"mcpServers":{"contextweave":{"command":"custom"}}}"#, executable: "/tmp/helper"))
+    }
     func testManagedConfigurationPreservesOtherServersAndIsIdempotent() throws {
         let original = "[mcp_servers.other]\r\ncommand = \"other\"\r\n"
         let snippet = AgentIntegration.codexSnippet(executable: "/tmp/path with spaces/helper")

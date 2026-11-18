@@ -61,7 +61,7 @@
 "settings.appearance.hint" = "System follows the macOS appearance automatically. Your choice applies to every ContextWeave window and is saved in the settings file.";
 
 
-"settings.agents.intro" = "ContextWeave registers a local MCP server with Codex, DeepSeek Harness, and Cursor. It updates each configuration file and backs it up first.";
+"settings.agents.intro" = "ContextWeave registers a local MCP server with Codex, DeepSeek Harness, Cursor, and Antigravity. It updates each configuration file and backs it up first.";
 "settings.agents.connect" = "Connect all agents";
 "settings.agents.update" = "Update all registrations";
 "settings.agents.remove" = "Remove all registrations";
@@ -71,6 +71,7 @@
 "settings.agents.unreadable" = "Cannot read";
 "settings.agents.unmanagedHint" = "This file has a contextweave entry without complete ContextWeave markers. Remove that entry or restore the BEGIN/END markers, then check again.";
 "settings.agents.cursorUnmanagedHint" = "Cursor's mcp.json has a contextweave entry that ContextWeave does not manage. Remove that entry (or add the CONTEXTWEAVE_MANAGED=1 environment marker) and check again.";
+"settings.agents.antigravityUnmanagedHint" = "Antigravity's mcp_config.json has a contextweave entry that ContextWeave does not manage. Remove that entry (or add the CONTEXTWEAVE_MANAGED=1 environment marker) and check again.";
 "settings.agents.unreadableHint" = "The configuration file exists but cannot be read. Check its permissions, then check again.";
 "settings.agents.helperMismatchHint" = "The registration points to a different helper. Update the registration to use the current path.";
 "settings.agents.helperMissingHint" = "The registered helper no longer exists. Update the registration to repair it.";
@@ -81,13 +82,14 @@
 "settings.agents.registeredHelper" = "Registered helper: %@";
 "settings.agents.helperUnavailable" = "The MCP helper was not found at %@. Build the app bundle first (./scripts/build-app.sh).";
 "settings.agents.removeConfirmTitle" = "Remove ContextWeave registrations?";
-"settings.agents.removeConfirmMessage" = "The managed blocks are removed from the Codex and DeepSeek Harness files, and the managed Cursor entry is removed from mcp.json. Backups are kept next to each file.";
+"settings.agents.removeConfirmMessage" = "The managed blocks are removed from the Codex and DeepSeek Harness files, and the managed entries are removed from Cursor's mcp.json and Antigravity's mcp_config.json. Backups are kept next to each file.";
 "settings.agents.removeConfirm" = "Remove";
 "settings.agents.manual" = "Manual configuration";
-"settings.agents.manualHint" = "Use these entries only if you prefer to edit the files yourself. All three agents launch the same helper and share the database.";
+"settings.agents.manualHint" = "Use these entries only if you prefer to edit the files yourself. All four agents launch the same helper and share the database.";
 "settings.agents.codexPath" = "Codex — %@";
 "settings.agents.dshPath" = "DeepSeek Harness — %@";
 "settings.agents.cursorPath" = "Cursor — %@";
+"settings.agents.antigravityPath" = "Antigravity — %@";
 "settings.agents.refresh" = "Check again";
 "settings.agents.checking" = "Checking agent access…";
 
@@ -115,7 +117,7 @@
 "settings.updates.unavailable" = "Update checks are available in the built app bundle only.";
 
 "settings.about.title" = "About ContextWeave";
-"settings.about.description" = "Local-first project context handoff for Codex and DeepSeek Harness. Session data stays on this Mac.";
+"settings.about.description" = "Local-first project context handoff for Codex, DeepSeek Harness, Cursor, and Antigravity. Session data stays on this Mac.";
 "settings.about.version" = "Version %@ (%@)";
 "settings.about.helper" = "MCP helper";
 "settings.about.database" = "Database";
@@ -136,7 +138,7 @@
 "archive.subtitle" = "Conversations archived or deleted in the original agent. History is kept read-only locally, and restored conversations return to Sessions automatically.";
 "archive.count" = "%d archived";
 "archive.emptyTitle" = "No archived conversations";
-"archive.emptyBody" = "When you archive or delete a conversation in Codex, DeepSeek Harness, or Cursor, it will appear here.";
+"archive.emptyBody" = "When you archive or delete a conversation in Codex, DeepSeek Harness, Cursor, or Antigravity, it will appear here.";
 "archive.archivedAt" = "Archived %@";
 "archive.readOnly" = "Read-only";
 "archive.loading" = "Loading archived conversation…";

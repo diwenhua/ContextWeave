@@ -41,6 +41,14 @@ struct ContextWeaveMCP {
                 for message in try AgentIntegration.configureCursor(executable: executable, home: home) { print(message) }
                 return
             }
+            if CommandLine.arguments.contains("--connect-antigravity") {
+                let env = ProcessInfo.processInfo.environment
+                let home = env["ANTIGRAVITY_CONFIG_HOME"].map { URL(fileURLWithPath: $0) }
+                    ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/config")
+                let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath().path
+                for message in try AgentIntegration.configureAntigravity(executable: executable, home: home) { print(message) }
+                return
+            }
             if CommandLine.arguments.contains("--connect") {
                 let env = ProcessInfo.processInfo.environment
                 let home = FileManager.default.homeDirectoryForCurrentUser

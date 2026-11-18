@@ -38,6 +38,7 @@ private enum AgentArtwork {
         switch agent {
         case "dsh": path = "/Applications/DeepSeek Harness.app/Contents/Resources/icon.png"
         case "cursor": path = "/Applications/Cursor.app/Contents/Resources/Cursor.icns"
+        case "antigravity": path = "/Applications/Antigravity.app/Contents/Resources/icon.icns"
         case "codex": path = "/Applications/ChatGPT.app/Contents/Resources/icon-codex-light.png"
         default: return nil
         }

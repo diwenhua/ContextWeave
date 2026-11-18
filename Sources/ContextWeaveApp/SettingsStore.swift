@@ -71,6 +71,10 @@ enum AppPaths {
         environmentHome("CURSOR_HOME", fallback: ".cursor")
     }
 
+    static var antigravityConfigHome: URL {
+        environmentHome("ANTIGRAVITY_CONFIG_HOME", fallback: ".gemini/config")
+    }
+
     static var settingsURL: URL { SettingsFile.defaultURL() }
 
     static func abbreviate(_ path: String) -> String {

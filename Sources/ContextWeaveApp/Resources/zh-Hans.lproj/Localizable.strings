@@ -61,7 +61,7 @@
 "settings.appearance.hint" = "跟随系统会随 macOS 外观自动切换；选择会立即应用到所有 ContextWeave 窗口，并保存在设置文件中。";
 
 
-"settings.agents.intro" = "为 Codex、DeepSeek Harness 与 Cursor 写入本地 MCP 服务配置；写入前会备份原文件。";
+"settings.agents.intro" = "为 Codex、DeepSeek Harness、Cursor 与 Antigravity 写入本地 MCP 服务配置；写入前会备份原文件。";
 "settings.agents.connect" = "接入全部 Agent";
 "settings.agents.update" = "更新全部接入";
 "settings.agents.remove" = "移除全部接入";
@@ -71,6 +71,7 @@
 "settings.agents.unreadable" = "无法读取";
 "settings.agents.unmanagedHint" = "配置文件中存在缺少完整 ContextWeave 标记的 contextweave 条目。请手动删除该条目或补全 BEGIN/END 标记，然后重新检测。";
 "settings.agents.cursorUnmanagedHint" = "Cursor 的 mcp.json 中存在非 ContextWeave 托管的 contextweave 条目。请删除该条目（或补上 CONTEXTWEAVE_MANAGED=1 环境标记）后重新检测。";
+"settings.agents.antigravityUnmanagedHint" = "Antigravity 的 mcp_config.json 中存在非 ContextWeave 托管的 contextweave 条目。请删除该条目（或补上 CONTEXTWEAVE_MANAGED=1 环境标记）后重新检测。";
 "settings.agents.unreadableHint" = "配置文件存在但无法读取，请检查文件权限后重新检测。";
 "settings.agents.helperMismatchHint" = "接入配置指向了其他位置。点击“更新接入配置”写入当前 Helper 路径。";
 "settings.agents.helperMissingHint" = "已登记的 Helper 不存在。点击“更新接入配置”进行修复。";
@@ -81,13 +82,14 @@
 "settings.agents.registeredHelper" = "已登记 Helper：%@";
 "settings.agents.helperUnavailable" = "找不到 MCP Helper：%@。请先构建应用包（./scripts/build-app.sh）。";
 "settings.agents.removeConfirmTitle" = "移除 ContextWeave 全部接入？";
-"settings.agents.removeConfirmMessage" = "将从 Codex 与 DeepSeek Harness 配置中删除带标记的区块，并从 Cursor 的 mcp.json 中移除托管条目；备份文件会保留。";
+"settings.agents.removeConfirmMessage" = "将从 Codex 与 DeepSeek Harness 配置中删除带标记的区块，并从 Cursor 的 mcp.json 与 Antigravity 的 mcp_config.json 中移除托管条目；备份文件会保留。";
 "settings.agents.removeConfirm" = "移除";
 "settings.agents.manual" = "手动配置";
-"settings.agents.manualHint" = "仅在需要自行编辑配置文件时使用。三个 Agent 启动同一个 Helper，并共享数据库。";
+"settings.agents.manualHint" = "仅在需要自行编辑配置文件时使用。四个 Agent 启动同一个 Helper，并共享数据库。";
 "settings.agents.codexPath" = "Codex — %@";
 "settings.agents.dshPath" = "DeepSeek Harness — %@";
 "settings.agents.cursorPath" = "Cursor — %@";
+"settings.agents.antigravityPath" = "Antigravity — %@";
 "settings.agents.refresh" = "重新检测";
 "settings.agents.checking" = "正在检测接入状态…";
 
@@ -115,7 +117,7 @@
 "settings.updates.unavailable" = "仅在构建后的应用包中可检查更新。";
 
 "settings.about.title" = "关于 ContextWeave";
-"settings.about.description" = "面向 Codex 与 DeepSeek Harness 的本地优先上下文交接工具，会话数据只保存在这台 Mac 上。";
+"settings.about.description" = "面向 Codex、DeepSeek Harness、Cursor 与 Antigravity 的本地优先上下文交接工具，会话数据只保存在这台 Mac 上。";
 "settings.about.version" = "版本 %@（%@）";
 "settings.about.helper" = "MCP Helper";
 "settings.about.database" = "数据库";
@@ -136,7 +138,7 @@
 "archive.subtitle" = "在原 Agent 中归档或删除的会话。历史只读保留在本地，恢复后会自动回到会话列表。";
 "archive.count" = "%d 个已归档";
 "archive.emptyTitle" = "暂无已归档会话";
-"archive.emptyBody" = "在 Codex、DeepSeek Harness 或 Cursor 中归档或删除会话后，会出现在这里。";
+"archive.emptyBody" = "在 Codex、DeepSeek Harness、Cursor 或 Antigravity 中归档或删除会话后，会出现在这里。";
 "archive.archivedAt" = "归档于 %@";
 "archive.readOnly" = "只读";
 "archive.loading" = "正在加载归档会话…";

@@ -355,6 +355,7 @@ final class HandoffModel: ObservableObject {
         switch agent {
         case "dsh": "DeepSeek Harness"
         case "cursor": "Cursor"
+        case "antigravity": "Antigravity"
         default: "Codex"
         }
     }
@@ -381,7 +382,10 @@ final class HandoffModel: ObservableObject {
     }
 
     private var captureSources: Set<String> {
-        configuration.cursorUserRoot == nil ? ["codex", "dsh"] : ["codex", "dsh", "cursor"]
+        var sources: Set<String> = ["codex", "dsh"]
+        if configuration.cursorUserRoot != nil { sources.insert("cursor") }
+        if configuration.antigravityRoot != nil { sources.insert("antigravity") }
+        return sources
     }
 
     /// Session logs, plus the agent files that hold the live conversation name and project path.
@@ -398,6 +402,12 @@ final class HandoffModel: ObservableObject {
         if let cursor = configuration.cursorUserRoot {
             paths.append(cursor.appendingPathComponent("globalStorage").path)
         }
+        if let antigravity = configuration.antigravityRoot {
+            paths.append(antigravity.appendingPathComponent("brain").path)
+            paths.append(antigravity.appendingPathComponent("conversation_summaries.db").path)
+            paths.append(antigravity.appendingPathComponent("conversation_summaries.db-wal").path)
+            paths.append(antigravity.deletingLastPathComponent().appendingPathComponent("config/projects").path)
+        }
         return paths.filter { FileManager.default.fileExists(atPath: $0) }
     }
 
@@ -405,12 +415,16 @@ final class HandoffModel: ObservableObject {
         let codexHome = configuration.codexRoot.deletingLastPathComponent().standardizedFileURL.path
         let dshHome = configuration.dshRoot.deletingLastPathComponent().standardizedFileURL.path
         let cursorHome = configuration.cursorUserRoot?.standardizedFileURL.path
+        let antigravityHome = configuration.antigravityRoot?.standardizedFileURL.path
+        let antigravityProjects = configuration.antigravityRoot?.deletingLastPathComponent().appendingPathComponent("config/projects").standardizedFileURL.path
         var matched: Set<String> = []
         for raw in changed {
             let path = URL(fileURLWithPath: raw).standardizedFileURL.path
             if path.hasPrefix(codexHome) { matched.insert("codex") }
             if path.hasPrefix(dshHome) { matched.insert("dsh") }
             if let cursorHome, path.hasPrefix(cursorHome) { matched.insert("cursor") }
+            if let antigravityHome, path.hasPrefix(antigravityHome) { matched.insert("antigravity") }
+            if let antigravityProjects, path.hasPrefix(antigravityProjects) { matched.insert("antigravity") }
         }
         return matched.isEmpty ? captureSources : matched
     }
@@ -445,7 +459,7 @@ final class HandoffModel: ObservableObject {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 guard let self, !Task.isCancelled else { return }
                 let live = self.sessions.contains { $0.runState == .running || $0.runState == .awaitingApproval }
-                if live { await self.refresh(sources: ["codex", "dsh"]) }
+                if live { await self.refresh(sources: ["codex", "dsh", "antigravity"]) }
             }
         }
     }

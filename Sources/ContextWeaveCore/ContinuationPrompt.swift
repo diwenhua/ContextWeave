@@ -53,6 +53,7 @@ public enum ContinuationPrompt {
         switch agent {
         case "dsh": "DeepSeek Harness"
         case "cursor": "Cursor"
+        case "antigravity": "Antigravity"
         case "codex": "Codex"
         default: agent
         }

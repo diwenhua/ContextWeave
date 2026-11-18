@@ -272,6 +272,7 @@ struct ContentView: View {
                 archivedChip("codex", label: "Codex")
                 archivedChip("dsh", label: "DeepSeek Harness")
                 archivedChip("cursor", label: "Cursor")
+                archivedChip("antigravity", label: "Antigravity")
             }
         }
         .padding(.horizontal, 24)
@@ -602,15 +603,15 @@ struct ContentView: View {
 }
 
 private struct EmptyHandoff: View {
-    private let agents = ["codex", "dsh", "cursor"]
+    private let agents = ["codex", "dsh", "cursor", "antigravity"]
 
     var body: some View {
         VStack(spacing: 28) {
             ZStack {
                 Capsule()
                     .fill(Weave.thread.opacity(0.55))
-                    .frame(width: 210, height: 1.5)
-                HStack(spacing: 40) {
+                    .frame(width: 280, height: 1.5)
+                HStack(spacing: 32) {
                     ForEach(agents, id: \.self) { agent in
                         AgentMark(agent: agent, size: 44)
                             .padding(5)
@@ -833,7 +834,7 @@ struct AgentPill: View {
     var body: some View {
         HStack(spacing: 5) {
             AgentMark(agent: agent, size: compact ? 14 : 16)
-            Text(agent == "dsh" ? "DeepSeek Harness" : agent == "cursor" ? "Cursor" : "Codex")
+            Text(HandoffModel.agentName(agent))
                 .lineLimit(1)
         }
         .font((compact ? Font.caption2 : Font.caption).weight(.semibold))
@@ -958,6 +959,14 @@ private struct ProjectAgentRail: View {
                 selected: agentFilter == "cursor",
                 help: "Cursor"
             ) { agentFilter = "cursor" }
+            AgentRailButton(
+                agent: "antigravity",
+                name: "Antigravity",
+                compact: !showsNames,
+                tint: Weave.antigravity,
+                selected: agentFilter == "antigravity",
+                help: "Antigravity"
+            ) { agentFilter = "antigravity" }
             Spacer(minLength: 0)
             Rectangle()
                 .fill(Weave.line)

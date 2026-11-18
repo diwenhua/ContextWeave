@@ -258,6 +258,9 @@ private struct AgentsSettingsView: View {
                     Text(String(format: String(localized: "settings.agents.cursorPath", bundle: .module), AppPaths.cursorHome.appendingPathComponent("mcp.json").path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.cursorSnippet(executable: currentHelper))
+                    Text(String(format: String(localized: "settings.agents.antigravityPath", bundle: .module), AppPaths.antigravityConfigHome.appendingPathComponent("mcp_config.json").path))
+                        .font(.caption.bold())
+                    snippet(AgentIntegration.antigravitySnippet(executable: currentHelper))
                 }
                 .padding(.top, 8)
             } label: {
@@ -295,7 +298,7 @@ private struct AgentsSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 AgentMark(agent: status.agent, size: 20)
-                Text(status.agent == "dsh" ? "DeepSeek Harness" : status.agent == "cursor" ? "Cursor" : "Codex").font(.headline)
+                Text(HandoffModel.agentName(status.agent)).font(.headline)
                 Spacer()
                 Label(stateLabel(status), systemImage: stateIcon(status))
                     .font(.caption)
@@ -334,6 +337,9 @@ private struct AgentsSettingsView: View {
         case .unmanaged:
             if status.agent == "cursor" {
                 return String(localized: "settings.agents.cursorUnmanagedHint", bundle: .module)
+            }
+            if status.agent == "antigravity" {
+                return String(localized: "settings.agents.antigravityUnmanagedHint", bundle: .module)
             }
             return String(localized: "settings.agents.unmanagedHint", bundle: .module)
         case .unreadable:
@@ -406,7 +412,10 @@ private struct AgentsSettingsView: View {
 
     private func refresh() {
         statuses = AgentIntegration.status(codexHome: AppPaths.codexHome, dshHome: AppPaths.dshHome)
-            + [AgentIntegration.cursorStatus(home: AppPaths.cursorHome)]
+            + [
+                AgentIntegration.cursorStatus(home: AppPaths.cursorHome),
+                AgentIntegration.antigravityStatus(home: AppPaths.antigravityConfigHome)
+            ]
     }
 
     private func connect() {
@@ -417,6 +426,7 @@ private struct AgentsSettingsView: View {
                 dshHome: AppPaths.dshHome
             )
             messages += try AgentIntegration.configureCursor(executable: currentHelper, home: AppPaths.cursorHome)
+            messages += try AgentIntegration.configureAntigravity(executable: currentHelper, home: AppPaths.antigravityConfigHome)
             feedback = SettingsFeedback(text: messages.joined(separator: "\n"))
         } catch {
             feedback = SettingsFeedback(text: error.localizedDescription, isError: true)
@@ -428,6 +438,7 @@ private struct AgentsSettingsView: View {
         do {
             var messages = try AgentIntegration.remove(codexHome: AppPaths.codexHome, dshHome: AppPaths.dshHome)
             messages += try AgentIntegration.configureCursor(executable: nil, home: AppPaths.cursorHome)
+            messages += try AgentIntegration.configureAntigravity(executable: nil, home: AppPaths.antigravityConfigHome)
             feedback = SettingsFeedback(text: messages.joined(separator: "\n"))
         } catch {
             feedback = SettingsFeedback(text: error.localizedDescription, isError: true)

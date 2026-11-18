@@ -59,7 +59,7 @@ def test_blocked_scan(root):
     fake_decoder = root / "slow-zstd"
     fake_decoder.write_text("#!/bin/sh\ntouch " + shlex.quote(str(ready)) + "\nsleep 2\ncat " + shlex.quote(str(decoded)) + "\n")
     fake_decoder.chmod(0o700)
-    settings = {"codexSessionsPath": str(root / "missing"), "dshSessionsPath": str(dsh), "cursorUserPath": str(root / "missing-cursor"), "databasePath": str(root / "db.sqlite")}
+    settings = {"codexSessionsPath": str(root / "missing"), "dshSessionsPath": str(dsh), "cursorUserPath": str(root / "missing-cursor"), "antigravityPath": str(root / "missing-antigravity"), "databasePath": str(root / "db.sqlite")}
     process = spawn(root, settings, {"CONTEXTWEAVE_ZSTD": str(fake_decoder)})
     try:
         send(process, request(1, "initialize", {"protocolVersion": "2025-06-18"}))
@@ -107,7 +107,7 @@ def test_blocked_scan(root):
 def test_startup_recovery(root):
     blocked = root / "blocked"
     blocked.write_text("not a directory")
-    settings = {"codexSessionsPath": str(root / "missing"), "dshSessionsPath": str(root / "missing-dsh"), "cursorUserPath": str(root / "missing-cursor"), "databasePath": str(blocked / "db.sqlite")}
+    settings = {"codexSessionsPath": str(root / "missing"), "dshSessionsPath": str(root / "missing-dsh"), "cursorUserPath": str(root / "missing-cursor"), "antigravityPath": str(root / "missing-antigravity"), "databasePath": str(blocked / "db.sqlite")}
     process = spawn(root, settings)
     try:
         send(process, request(1, "initialize", {"protocolVersion": "2025-06-18"}))
@@ -129,7 +129,7 @@ def test_startup_recovery(root):
 def test_atomic_binary_replacement(root):
     executable = root / "helper"
     shutil.copy2(HELPER, executable)
-    settings = {"codexSessionsPath": str(root / "missing"), "dshSessionsPath": str(root / "missing-dsh"), "cursorUserPath": str(root / "missing-cursor"), "databasePath": str(root / "db.sqlite")}
+    settings = {"codexSessionsPath": str(root / "missing"), "dshSessionsPath": str(root / "missing-dsh"), "cursorUserPath": str(root / "missing-cursor"), "antigravityPath": str(root / "missing-antigravity"), "databasePath": str(root / "db.sqlite")}
     settings_path = root / "settings.json"
     settings_path.write_text(json.dumps(settings))
     process = subprocess.Popen([str(executable)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, CONTEXTWEAVE_SETTINGS=str(settings_path)), bufsize=0)

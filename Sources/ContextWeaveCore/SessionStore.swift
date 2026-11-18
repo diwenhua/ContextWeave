@@ -188,6 +188,9 @@ final class SessionStore {
                 if let title = Self.cleanTitle(item.title) {
                     try run("UPDATE sessions SET title=? WHERE agent=? AND external_id=?", [title, item.agent, item.externalID])
                 }
+                if let runState = item.runState {
+                    try run("UPDATE sessions SET run_state=? WHERE agent=? AND external_id=?", [runState.rawValue, item.agent, item.externalID])
+                }
                 guard let canonical = pending["\(item.agent)\n\(item.externalID)"] else { continue }
                 try relocate(agent: item.agent, externalID: item.externalID, canonical: canonical, pending: pending)
             }

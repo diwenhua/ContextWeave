@@ -9,6 +9,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var dshSessionsPath: String
     /// Cursor User directory, or empty to use its macOS default.
     public var cursorUserPath: String
+    /// Antigravity app data directory, or empty to use `ANTIGRAVITY_HOME` / `~/.gemini/antigravity`.
+    public var antigravityPath: String
     /// Absolute file path, or empty to use `CONTEXTWEAVE_DB` / Application Support.
     public var databasePath: String
     public var watchAutomatically: Bool
@@ -24,6 +26,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         codexSessionsPath: String = "",
         dshSessionsPath: String = "",
         cursorUserPath: String = "",
+        antigravityPath: String = "",
         databasePath: String = "",
         watchAutomatically: Bool = true,
         scanIntervalSeconds: Int = AppSettings.defaultScanIntervalSeconds,
@@ -33,6 +36,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.codexSessionsPath = codexSessionsPath
         self.dshSessionsPath = dshSessionsPath
         self.cursorUserPath = cursorUserPath
+        self.antigravityPath = antigravityPath
         self.databasePath = databasePath
         self.watchAutomatically = watchAutomatically
         self.scanIntervalSeconds = scanIntervalSeconds
@@ -41,7 +45,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case codexSessionsPath, dshSessionsPath, cursorUserPath, databasePath, watchAutomatically, scanIntervalSeconds, appearance, memoryModel
+        case codexSessionsPath, dshSessionsPath, cursorUserPath, antigravityPath, databasePath, watchAutomatically, scanIntervalSeconds, appearance, memoryModel
     }
 
     /// Missing or unknown keys fall back to defaults so older files stay readable.
@@ -50,6 +54,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         codexSessionsPath = try container.decodeIfPresent(String.self, forKey: .codexSessionsPath) ?? ""
         dshSessionsPath = try container.decodeIfPresent(String.self, forKey: .dshSessionsPath) ?? ""
         cursorUserPath = try container.decodeIfPresent(String.self, forKey: .cursorUserPath) ?? ""
+        antigravityPath = try container.decodeIfPresent(String.self, forKey: .antigravityPath) ?? ""
         databasePath = try container.decodeIfPresent(String.self, forKey: .databasePath) ?? ""
         watchAutomatically = try container.decodeIfPresent(Bool.self, forKey: .watchAutomatically) ?? true
         let interval = try container.decodeIfPresent(Int.self, forKey: .scanIntervalSeconds) ?? Self.defaultScanIntervalSeconds
@@ -60,7 +65,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
 
     public var hasCustomPaths: Bool {
-        !codexSessionsPath.isEmpty || !dshSessionsPath.isEmpty || !cursorUserPath.isEmpty || !databasePath.isEmpty
+        !codexSessionsPath.isEmpty || !dshSessionsPath.isEmpty || !cursorUserPath.isEmpty || !antigravityPath.isEmpty || !databasePath.isEmpty
     }
 
     /// Explicit app settings win over environment variables; environment variables win over defaults.
@@ -74,6 +79,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         let dshHome = environment["DSH_HOME"]
             .flatMap { Self.standardizedPath($0, home: home) }
             .map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".dsh")
+        let antigravityHome = environment["ANTIGRAVITY_HOME"]
+            .flatMap { Self.standardizedPath($0, home: home) }
+            .map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".gemini/antigravity")
         let defaultDatabase = environment["CONTEXTWEAVE_DB"]
             .flatMap { Self.standardizedPath($0, home: home) }
             .map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent("Library/Application Support/ContextWeave/contextweave.sqlite")
@@ -86,7 +94,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
             codexSessions: resolve(codexSessionsPath, fallback: codexHome.appendingPathComponent("sessions")),
             dshSessions: resolve(dshSessionsPath, fallback: dshHome.appendingPathComponent("sessions")),
             database: resolve(databasePath, fallback: defaultDatabase),
-            cursorUser: resolve(cursorUserPath, fallback: home.appendingPathComponent("Library/Application Support/Cursor/User"))
+            cursorUser: resolve(cursorUserPath, fallback: home.appendingPathComponent("Library/Application Support/Cursor/User")),
+            antigravityRoot: resolve(antigravityPath, fallback: antigravityHome)
         )
     }
 
@@ -95,7 +104,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> CaptureConfiguration {
         let paths = resolvedPaths(environment: environment, home: home)
-        return CaptureConfiguration(codexRoot: paths.codexSessions, dshRoot: paths.dshSessions, databaseURL: paths.database, deviceIdentityDirectory: SettingsFile.defaultURL(environment: environment, home: home).deletingLastPathComponent(), cursorUserRoot: paths.cursorUser)
+        return CaptureConfiguration(codexRoot: paths.codexSessions, dshRoot: paths.dshSessions, databaseURL: paths.database, deviceIdentityDirectory: SettingsFile.defaultURL(environment: environment, home: home).deletingLastPathComponent(), cursorUserRoot: paths.cursorUser, antigravityRoot: paths.antigravityRoot)
     }
 
     /// Returns a standardized absolute path, or nil for blank/relative input.
@@ -117,12 +126,20 @@ public struct ResolvedPaths: Equatable, Sendable {
     public let dshSessions: URL
     public let database: URL
     public let cursorUser: URL
+    public let antigravityRoot: URL
 
-    public init(codexSessions: URL, dshSessions: URL, database: URL, cursorUser: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor/User")) {
+    public init(
+        codexSessions: URL,
+        dshSessions: URL,
+        database: URL,
+        cursorUser: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor/User"),
+        antigravityRoot: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/antigravity")
+    ) {
         self.codexSessions = codexSessions
         self.dshSessions = dshSessions
         self.database = database
         self.cursorUser = cursorUser
+        self.antigravityRoot = antigravityRoot
     }
 }
 

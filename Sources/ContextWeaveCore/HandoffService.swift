@@ -5,13 +5,14 @@ public struct CaptureConfiguration: Sendable, Equatable {
     public let codexRoot: URL
     public let dshRoot: URL
     public let cursorUserRoot: URL?
+    public let antigravityRoot: URL?
     public let databaseURL: URL
     public let deviceIdentityDirectory: URL
-    public init(codexRoot: URL, dshRoot: URL, databaseURL: URL, deviceIdentityDirectory: URL? = nil, cursorUserRoot: URL? = nil) {
-        self.codexRoot = codexRoot; self.dshRoot = dshRoot; self.databaseURL = databaseURL; self.cursorUserRoot = cursorUserRoot
+    public init(codexRoot: URL, dshRoot: URL, databaseURL: URL, deviceIdentityDirectory: URL? = nil, cursorUserRoot: URL? = nil, antigravityRoot: URL? = nil) {
+        self.codexRoot = codexRoot; self.dshRoot = dshRoot; self.databaseURL = databaseURL; self.cursorUserRoot = cursorUserRoot; self.antigravityRoot = antigravityRoot
         self.deviceIdentityDirectory = deviceIdentityDirectory ?? databaseURL.deletingLastPathComponent()
     }
-    /// Honors the shared settings file, then `CODEX_HOME` / `DSH_HOME` / `CONTEXTWEAVE_DB`.
+    /// Honors the shared settings file, then `CODEX_HOME` / `DSH_HOME` / `ANTIGRAVITY_HOME` / `CONTEXTWEAVE_DB`.
     public static var local: CaptureConfiguration {
         SettingsFile.load().captureConfiguration()
     }
@@ -35,6 +36,8 @@ public struct DisplaySessionPage: Sendable {
 }
 
 public actor HandoffService {
+    public static let supportedAgents: [String] = ["codex", "dsh", "cursor", "antigravity"]
+
     private enum CursorEvent: Sendable {
         case snapshot(CursorCapture.Snapshot)
         case incomplete(Int)
@@ -49,10 +52,12 @@ public actor HandoffService {
         store = try SessionStore(url: configuration.databaseURL, deviceID: deviceID)
     }
     /// Sources parse concurrently using independent SQLite connections; each commit remains transactional.
-    /// Pass `only` to scan the agents whose files just changed, so a live Codex or Harness tail does not wait on Cursor.
+    /// Pass `only` to scan the agents whose files just changed, so a live tail does not wait on Cursor.
     public func scan(only: Set<String>? = nil, onUpdate: (@Sendable () async -> Void)? = nil) async -> CaptureReport {
         let configuration = self.configuration
-        let available = configuration.cursorUserRoot == nil ? ["codex", "dsh"] : ["codex", "dsh", "cursor"]
+        var available = ["codex", "dsh"]
+        if configuration.cursorUserRoot != nil { available.append("cursor") }
+        if configuration.antigravityRoot != nil { available.append("antigravity") }
         let sources = only.map { available.filter($0.contains) } ?? available
         let report = await withTaskGroup(of: CaptureReport.self, returning: CaptureReport.self) { group in
             for source in sources {
@@ -152,62 +157,56 @@ public actor HandoffService {
                     if !dshArchivedSessionIDs.contains(sessionDirectory) { files.append(file) }
                 }
             }
-            report.errors += discoveryErrors
             if agent == "dsh" { files = Self.latestGenerations(files) }
-            report.discovered += files.count
-            var authoritative = discoveryErrors.isEmpty
-            var liveExternalIDs: Set<String> = []
-            for file in files {
-                let path = file.resolvingSymlinksInPath().path
-                // Concurrent GUI/MCP scans may have read the same cursor. Reparse against
-                // the winning cursor if another process committed first.
-                for attempt in 0..<3 {
-                    do {
-                        let identity = try Self.identity(path)
-                        let previous = cursors[path]
-                        if let previous, previous.parserVersion == SessionParser.version, previous.inode == identity.inode, previous.observedSize == identity.size, previous.observedMtimeMS == identity.mtimeMS {
-                            if let externalID = previous.externalID { liveExternalIDs.insert(externalID) }
-                            report.unchanged += 1
+            await captureFileSource(agent: agent, identityRoot: root, files: files, discoveryErrors: discoveryErrors, cursors: &cursors, report: &report, publish: publish)
+        }
+        if source == "antigravity", let antigravityRoot = configuration.antigravityRoot {
+            let brainRoot = antigravityRoot.appendingPathComponent("brain")
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: brainRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                report.unavailable.append(brainRoot.path)
+                return report
+            }
+            let metadata = AgentIdentityCatalog.antigravityMetadata(root: antigravityRoot)
+            var discoveryErrors: [String] = []
+            var files: [URL] = []
+            do {
+                let entries = try FileManager.default.contentsOfDirectory(
+                    at: brainRoot,
+                    includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles]
+                )
+                for directory in entries.sorted(by: { $0.path < $1.path }) {
+                    let dirValues = try? directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                    guard dirValues?.isDirectory == true, dirValues?.isSymbolicLink != true else { continue }
+                    let id = directory.lastPathComponent
+                    if let info = metadata[id], info.isSubagent || info.isArchived { continue }
+                    let logs = directory.appendingPathComponent(".system_generated/logs")
+                    let full = logs.appendingPathComponent("transcript_full.jsonl")
+                    let compact = logs.appendingPathComponent("transcript.jsonl")
+                    for candidate in [full, compact] {
+                        let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                        if values?.isRegularFile == true, values?.isSymbolicLink != true {
+                            files.append(candidate)
                             break
                         }
-                        if let previous, previous.rejected, previous.parserVersion == SessionParser.version, previous.inode == identity.inode, identity.size >= previous.observedSize {
-                            var skipped = previous
-                            skipped.observedSize = identity.size
-                            skipped.observedMtimeMS = identity.mtimeMS
-                            skipped.offset = identity.size
-                            skipped.pending = ""
-                            try store.commitCapture(path: path, cursor: skipped, session: nil, fullReplace: false, previousAgent: nil, previousExternalID: nil, expectedCursor: previous)
-                            cursors[path] = skipped
-                            if let externalID = previous.externalID { liveExternalIDs.insert(externalID) }
-                            report.unchanged += 1
-                            break
-                        }
-                        let tail = Self.canResume(previous, identity: identity)
-                        let captured = try capture(file, agent: agent, path: path, previous: tail ? previous : nil, identity: identity)
-                        try store.commitCapture(path: path, cursor: captured.cursor, session: captured.session, fullReplace: !tail || captured.reread, previousAgent: previous?.externalID == nil ? nil : agent, previousExternalID: previous?.externalID, expectedCursor: previous)
-                        cursors[path] = captured.cursor
-                        if let session = captured.session {
-                            liveExternalIDs.insert(session.source.id.externalID)
-                            report.imported += 1
-                            await publish()
-                        } else if let externalID = captured.cursor.externalID {
-                            liveExternalIDs.insert(externalID)
-                        }
-                        break
-                    } catch CaptureError.staleCursor {
-                        authoritative = false
-                        do { cursors[path] = try store.cursors(path: path)[path] }
-                        catch { report.errors.append("\(path): \(error.localizedDescription)"); break }
-                        if attempt == 2 { report.errors.append("\(path): Capture changed repeatedly in another process; retry the scan.") }
-                    } catch { authoritative = false; report.errors.append("\(path): \(error.localizedDescription)"); break }
+                    }
                 }
+            } catch {
+                discoveryErrors.append("\(brainRoot.path): \(error.localizedDescription)")
             }
-            if authoritative {
-                do { report.archived += try store.reconcileSessions(agent: source, liveExternalIDs: liveExternalIDs) }
-                catch { report.errors.append("\(source): archive reconciliation failed: \(error.localizedDescription)") }
+            await captureFileSource(agent: "antigravity", identityRoot: antigravityRoot, files: files, discoveryErrors: discoveryErrors, cursors: &cursors, report: &report, publish: publish) { session in
+                guard let info = metadata[session.source.id.externalID] else { return session }
+                return Session(
+                    source: session.source,
+                    projectID: session.projectID ?? info.projectPath,
+                    messages: session.messages,
+                    messageIDsAreOrdinals: session.messageIDsAreOrdinals,
+                    stableProjectID: session.stableProjectID,
+                    runState: session.runState ?? info.runState,
+                    agentTitle: session.agentTitle ?? info.title
+                )
             }
-            do { try store.applyIdentities(AgentIdentityCatalog.identities(agent: agent, root: root)) }
-            catch { report.errors.append("\(agent): \(error.localizedDescription)") }
         }
         if source == "cursor", let cursorRoot = configuration.cursorUserRoot {
             let database = cursorRoot.appendingPathComponent("globalStorage/state.vscdb")
@@ -282,6 +281,74 @@ public actor HandoffService {
             catch { report.errors.append("Cursor capture failed: \(error.localizedDescription)") }
         }
         return report
+    }
+
+    private func captureFileSource(
+        agent: String,
+        identityRoot: URL,
+        files: [URL],
+        discoveryErrors: [String],
+        cursors: inout [String: FileCursor],
+        report: inout CaptureReport,
+        publish: () async -> Void,
+        enrich: (Session) -> Session = { $0 }
+    ) async {
+        report.errors += discoveryErrors
+        report.discovered += files.count
+        var authoritative = discoveryErrors.isEmpty
+        var liveExternalIDs: Set<String> = []
+        for file in files {
+            let path = file.resolvingSymlinksInPath().path
+            // Concurrent GUI/MCP scans may have read the same cursor. Reparse against
+            // the winning cursor if another process committed first.
+            for attempt in 0..<3 {
+                do {
+                    let identity = try Self.identity(path)
+                    let previous = cursors[path]
+                    if let previous, previous.parserVersion == SessionParser.version, previous.inode == identity.inode, previous.observedSize == identity.size, previous.observedMtimeMS == identity.mtimeMS {
+                        if let externalID = previous.externalID { liveExternalIDs.insert(externalID) }
+                        report.unchanged += 1
+                        break
+                    }
+                    if let previous, previous.rejected, previous.parserVersion == SessionParser.version, previous.inode == identity.inode, identity.size >= previous.observedSize {
+                        var skipped = previous
+                        skipped.observedSize = identity.size
+                        skipped.observedMtimeMS = identity.mtimeMS
+                        skipped.offset = identity.size
+                        skipped.pending = ""
+                        try store.commitCapture(path: path, cursor: skipped, session: nil, fullReplace: false, previousAgent: nil, previousExternalID: nil, expectedCursor: previous)
+                        cursors[path] = skipped
+                        if let externalID = previous.externalID { liveExternalIDs.insert(externalID) }
+                        report.unchanged += 1
+                        break
+                    }
+                    let tail = Self.canResume(previous, identity: identity)
+                    let captured = try capture(file, agent: agent, path: path, previous: tail ? previous : nil, identity: identity)
+                    let session = captured.session.map(enrich)
+                    try store.commitCapture(path: path, cursor: captured.cursor, session: session, fullReplace: !tail || captured.reread, previousAgent: previous?.externalID == nil ? nil : agent, previousExternalID: previous?.externalID, expectedCursor: previous)
+                    cursors[path] = captured.cursor
+                    if let session {
+                        liveExternalIDs.insert(session.source.id.externalID)
+                        report.imported += 1
+                        await publish()
+                    } else if let externalID = captured.cursor.externalID {
+                        liveExternalIDs.insert(externalID)
+                    }
+                    break
+                } catch CaptureError.staleCursor {
+                    authoritative = false
+                    do { cursors[path] = try store.cursors(path: path)[path] }
+                    catch { report.errors.append("\(path): \(error.localizedDescription)"); break }
+                    if attempt == 2 { report.errors.append("\(path): Capture changed repeatedly in another process; retry the scan.") }
+                } catch { authoritative = false; report.errors.append("\(path): \(error.localizedDescription)"); break }
+            }
+        }
+        if authoritative {
+            do { report.archived += try store.reconcileSessions(agent: agent, liveExternalIDs: liveExternalIDs) }
+            catch { report.errors.append("\(agent): archive reconciliation failed: \(error.localizedDescription)") }
+        }
+        do { try store.applyIdentities(AgentIdentityCatalog.identities(agent: agent, root: identityRoot)) }
+        catch { report.errors.append("\(agent): \(error.localizedDescription)") }
     }
     public func sessions(project: String? = nil) throws -> [SessionSummary] {
         try store.list(project: project.map(resolveProjectReference))
@@ -403,7 +470,7 @@ public actor HandoffService {
     }
     func capturedOffset(_ path: String) throws -> Int64? { try store.cursors()[path]?.offset }
     public func logProgress(project: String, agent: String, done: String, next: String = "", issues: String = "") throws -> ProgressEntry {
-        guard ["codex", "dsh", "cursor"].contains(agent), !done.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CaptureError.invalid("agent must be codex, dsh, or cursor; done must not be empty") }
+        guard Self.supportedAgents.contains(agent), !done.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CaptureError.invalid("agent must be codex, dsh, cursor, or antigravity; done must not be empty") }
         guard done.count + next.count + issues.count <= 24_000 else { throw CaptureError.invalid("Progress entry exceeds 24,000 characters") }
         let entry = ProgressEntry(id: UUID().uuidString, project: try resolveProjectReference(project), agent: agent, done: done, next: next, issues: issues, timestamp: Int64(Date().timeIntervalSince1970 * 1000))
         return try store.log(entry)
@@ -436,7 +503,7 @@ public actor HandoffService {
     }
 
     public func context(project: String, targetAgent: String, budget: Int = 24_000, task: String? = nil, sessionID: SessionID? = nil) throws -> String {
-        guard ["codex", "dsh", "cursor"].contains(targetAgent) else { throw CaptureError.invalid("target_agent must be codex, dsh, or cursor") }
+        guard Self.supportedAgents.contains(targetAgent) else { throw CaptureError.invalid("target_agent must be codex, dsh, cursor, or antigravity") }
         let project = try resolveProjectReference(project)
         let sessions = try store.list(project: project, limit: 12)
         if let sessionID, try !session(sessionID, belongsToWorkspace: project) { throw CaptureError.invalid("Session not found in this project") }
