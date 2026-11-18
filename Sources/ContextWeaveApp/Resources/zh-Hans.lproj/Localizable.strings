@@ -182,7 +182,7 @@
 "memory.rejected.hide" = "收起已排除（%d）";
 
 "memory.processing" = "正在后台整理，剩余 %lld 个会话";
-"memory.ruleMode" = "选择会话后可手动使用模型整理记忆。";
+"memory.ruleMode" = "选择会话后，可用模型整理记忆或开启自动整理。";
 
 "settings.section.memoryModel" = "记忆模型";
 "settings.model.intro" = "配置用于记忆理解的模型服务。";
@@ -204,7 +204,7 @@
 "settings.model.success" = "连接成功。";
 
 "memory.semantic.run" = "用模型整理此会话";
-"memory.semantic.privacy" = "将此会话中用户和助手的内容分批（每批最多 40 条）脱敏后发送至已配置的模型服务；可能产生费用。脱敏不能保证覆盖所有敏感信息。";
+"memory.semantic.privacy" = "将完整对话分段脱敏，并将适用的已确认记忆发送至已配置模型，用于整理与冲突识别。可能产生费用，脱敏不能保证覆盖所有敏感信息。";
 "memory.semantic.success" = "模型整理完成，候选记忆待确认。";
 
 "memory.semantic.watch" = "扫描后自动整理此会话";
@@ -212,3 +212,6 @@
 "memory.status.superseded" = "已被取代";
 "memory.processed" = "已处理 %d 条消息";
 "memory.evidence" = "查看引用原文";
+"memory.conflict.title" = "可能存在冲突 · 待审核";
+"memory.conflict.replace" = "替代并采用原记忆的作用范围";
+"memory.conflict.keep" = "两条可共存，忽略此冲突";

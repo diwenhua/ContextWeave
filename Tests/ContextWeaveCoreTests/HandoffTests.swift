@@ -425,7 +425,7 @@ final class HandoffTests: XCTestCase {
         check.arguments = [db.path, "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('progress_project_timestamp','messages_session_timestamp'); PRAGMA user_version;"]
         let pipe = Pipe(); check.standardOutput = pipe
         try check.run(); let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self); check.waitUntilExit()
-        XCTAssertEqual(output, "2\n12\n")
+        XCTAssertEqual(output, "2\n13\n")
     }
     func testRejectsNewerSchemaWithoutChangingIt() throws {
         let root = try directory(), db = root.appendingPathComponent("future.sqlite")

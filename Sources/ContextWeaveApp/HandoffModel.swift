@@ -12,6 +12,7 @@ final class HandoffModel: ObservableObject {
     @Published var sessions: [SessionSummary] = []
     @Published var archivedSessions: [SessionSummary] = []
     @Published var memories: [ProjectMemory] = []
+    @Published var memoryConflicts: [MemoryConflict] = []
     @Published private(set) var extractingMemory: SessionID?
     @Published private(set) var processedMessages = 0
     @Published var watchedSessions: Set<SessionID> = []
@@ -179,6 +180,16 @@ final class HandoffModel: ObservableObject {
         }
     }
 
+    func dismissConflict(_ conflict: MemoryConflict) {
+        guard let service else { return }
+        Task {
+            do {
+                try await service.dismissConflict(conflict)
+                await publishScanProgress(service)
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
     func replaceMemory(_ old: ProjectMemory, with new: ProjectMemory) {
         guard let service else { return }
         Task {
@@ -225,11 +236,13 @@ final class HandoffModel: ObservableObject {
                     guard watchedSessions.contains(id) else { continue }
                     extractingMemory = id
                     processedMessages = 0
+                    memoryExtractionMessage = nil
                     defer { extractingMemory = nil }
                     do {
                         let key = try MemoryModelKeychain.load(endpoint: model.validatedEndpoint())
                         try await extract(service, id: id, model: model, key: key)
                         try await service.finishWatch(id, revision: revision, success: true)
+                        memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .module)
                         await publishScanProgress(service)
                     } catch {
                         try await service.finishWatch(id, revision: revision, success: false)
@@ -280,6 +293,7 @@ final class HandoffModel: ObservableObject {
             let loaded = try await source.displaySessions()
             let loadedArchived = try await source.displayArchivedSessions()
             let loadedMemories = try await source.displayMemories()
+            let loadedConflicts = try await source.memoryConflicts()
             let loadedProjects = try await source.projects()
             let loadedWorkspaces = try await source.workspaceBindings()
             let loadedStats = try await source.stats()
@@ -291,6 +305,7 @@ final class HandoffModel: ObservableObject {
             sessions = loaded
             archivedSessions = loadedArchived
             memories = loadedMemories
+            memoryConflicts = loadedConflicts
             error = nil
             revision += 1
         } catch {

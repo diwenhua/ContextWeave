@@ -182,7 +182,7 @@
 "memory.rejected.hide" = "Hide excluded (%d)";
 
 "memory.processing" = "Processing %lld conversations in the background";
-"memory.ruleMode" = "Select a conversation to extract memory with the configured model.";
+"memory.ruleMode" = "Select a conversation to run model extraction or enable automatic extraction.";
 
 "settings.section.memoryModel" = "Memory Model";
 "settings.model.intro" = "Configure a model service for memory understanding.";
@@ -204,7 +204,7 @@
 "settings.model.success" = "Connection succeeded.";
 
 "memory.semantic.run" = "Extract this session with model";
-"memory.semantic.privacy" = "Sends redacted user and assistant content in batches of 40 messages to the configured model service; charges may apply. Redaction may not catch all sensitive information.";
+"memory.semantic.privacy" = "Sends redacted conversation text in complete fragments and applicable confirmed memories to the configured model to extract and check conflicts. Charges may apply. Redaction may not catch all sensitive information.";
 "memory.semantic.success" = "Extraction complete; candidates await review.";
 
 "memory.semantic.watch" = "Automatically extract this conversation after scans";
@@ -212,3 +212,6 @@
 "memory.status.superseded" = "Superseded";
 "memory.processed" = "%d messages processed";
 "memory.evidence" = "View cited message";
+"memory.conflict.title" = "Potential conflict · review required";
+"memory.conflict.replace" = "Replace and adopt existing scope";
+"memory.conflict.keep" = "These can coexist — dismiss conflict";

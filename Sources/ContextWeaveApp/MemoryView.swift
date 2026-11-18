@@ -650,7 +650,7 @@ private struct MemoryEntry: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Weave.thread.opacity(0.12)))
-                Text(String(localized: String.LocalizationValue("memory.status.\(memory.status)"), bundle: .module))
+                Text(String(localized: String.LocalizationValue("memory.status." + memory.status), bundle: .module))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(Weave.muted)
                 Spacer(minLength: 4)
@@ -693,6 +693,23 @@ private struct MemoryEntry: View {
             }
             .font(.caption)
             .foregroundStyle(Weave.muted)
+            ForEach(model.memoryConflicts.filter { $0.candidateID == memory.id }) { conflict in
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(String(localized: "memory.conflict.title", bundle: .module), systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text(conflict.reason).textSelection(.enabled)
+                    if let old = model.memories.first(where: { $0.id == conflict.confirmedID }) {
+                        Text(old.content).foregroundStyle(Weave.muted).textSelection(.enabled)
+                        Button(String(localized: "memory.conflict.replace", bundle: .module)) { model.replaceMemory(old, with: memory) }
+                            .disabled(model.memoryConflicts.filter { $0.candidateID == memory.id }.count > 1)
+                    }
+                    Button(String(localized: "memory.conflict.keep", bundle: .module)) { model.dismissConflict(conflict) }
+                }
+                .font(.caption)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.08)))
+            }
             if memory.status != "checkpoint" && memory.status != "superseded" {
                 HStack(spacing: 8) {
                     if memory.status == "candidate" {
@@ -711,6 +728,7 @@ private struct MemoryEntry: View {
                     }
                     if memory.status != "confirmed" {
                         Button(String(localized: "memory.confirm", bundle: .module)) { model.reviewMemory(memory, status: "confirmed") }
+                            .disabled(model.extractingMemory != nil || model.memoryConflicts.contains { $0.candidateID == memory.id })
                     }
                     if memory.status != "rejected" {
                         Button(String(localized: "memory.reject", bundle: .module)) { model.reviewMemory(memory, status: "rejected") }
@@ -720,7 +738,7 @@ private struct MemoryEntry: View {
                     }
                     Menu {
                         ForEach(["global", "project", "session"], id: \.self) { destination in
-                            Button(String(localized: String.LocalizationValue("memory.scope.\(destination)"), bundle: .module)) {
+                            Button(String(localized: String.LocalizationValue("memory.scope." + destination), bundle: .module)) {
                                 model.moveMemory(memory, scope: destination)
                             }
                             .disabled(memory.scope == destination)
