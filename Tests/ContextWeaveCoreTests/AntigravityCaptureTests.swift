@@ -188,6 +188,14 @@ final class AntigravityCaptureTests: XCTestCase {
         _ = await service.scan()
         let restoredIDs = try await service.sessions().map(\.id)
         XCTAssertTrue(restoredIDs.contains(id1))
+
+        // An unreadable metadata schema must be reported without archiving captured history.
+        sql("ALTER TABLE conversation_summaries RENAME TO changed_metadata_schema")
+        let failedScan = await service.scan(only: ["antigravity"])
+        XCTAssertFalse(failedScan.errors.isEmpty)
+        XCTAssertEqual(failedScan.archived, 0)
+        let preservedIDs = try await service.sessions().map(\.id)
+        XCTAssertTrue(preservedIDs.contains(id1))
     }
 
     func testAntigravityRunStateMapping() {

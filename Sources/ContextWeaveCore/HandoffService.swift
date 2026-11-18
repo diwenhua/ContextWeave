@@ -168,7 +168,12 @@ public actor HandoffService {
                 report.unavailable.append(brainRoot.path)
                 return report
             }
-            let metadata = AgentIdentityCatalog.antigravityMetadata(root: antigravityRoot)
+            let metadata: [String: AntigravityConversationMetadata]
+            do { metadata = try AgentIdentityCatalog.antigravityMetadata(root: antigravityRoot) }
+            catch {
+                report.errors.append(error.localizedDescription)
+                return report
+            }
             var discoveryErrors: [String] = []
             var files: [URL] = []
             do {

@@ -21,11 +21,11 @@ struct AntigravityConversationMetadata: Sendable {
 }
 
 enum AgentIdentityCatalog {
-    static func identities(agent: String, root: URL) -> [AgentSessionIdentity] {
+    static func identities(agent: String, root: URL) throws -> [AgentSessionIdentity] {
         switch agent {
         case "codex": return codex(root: root)
         case "dsh": return dsh(root: root)
-        case "antigravity": return antigravity(root: root)
+        case "antigravity": return try antigravity(root: root)
         default: return []
         }
     }
@@ -166,8 +166,8 @@ enum AgentIdentityCatalog {
         return try? JSONSerialization.jsonObject(with: data)
     }
 
-    private static func antigravity(root: URL) -> [AgentSessionIdentity] {
-        antigravityMetadata(root: root).values
+    private static func antigravity(root: URL) throws -> [AgentSessionIdentity] {
+        try antigravityMetadata(root: root).values
             .filter { !$0.isSubagent && !$0.isArchived }
             .map {
                 AgentSessionIdentity(
@@ -180,13 +180,14 @@ enum AgentIdentityCatalog {
             }
     }
 
-    static func antigravityMetadata(root: URL) -> [String: AntigravityConversationMetadata] {
+    static func antigravityMetadata(root: URL) throws -> [String: AntigravityConversationMetadata] {
         let database = root.appendingPathComponent("conversation_summaries.db")
         guard FileManager.default.fileExists(atPath: database.path) else { return [:] }
         var db: OpaquePointer?
         guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            let detail = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Cannot open metadata"
             if let db { sqlite3_close(db) }
-            return [:]
+            throw CaptureError.invalid("Antigravity metadata: " + detail)
         }
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 2000)
@@ -206,11 +207,13 @@ enum AgentIdentityCatalog {
             SELECT conversation_id, title, workspace_uris, status, project_id, parent_conversation_id, nesting_depth, not_fully_idle, killed
             FROM conversation_summaries
             """
-        guard sqlite3_prepare_v2(db, sql, -1, &query, nil) == SQLITE_OK, let query else { return [:] }
+        guard sqlite3_prepare_v2(db, sql, -1, &query, nil) == SQLITE_OK, let query else { throw CaptureError.invalid("Antigravity metadata: " + String(cString: sqlite3_errmsg(db))) }
         defer { sqlite3_finalize(query) }
 
         var result: [String: AntigravityConversationMetadata] = [:]
-        while sqlite3_step(query) == SQLITE_ROW {
+        var resultCode = sqlite3_step(query)
+        while resultCode == SQLITE_ROW {
+            defer { resultCode = sqlite3_step(query) }
             guard let id = column(query, 0) else { continue }
             let title = column(query, 1)
             let workspaceURIs = column(query, 2)
@@ -234,6 +237,7 @@ enum AgentIdentityCatalog {
                 isArchived: archivedIDs.contains(id)
             )
         }
+        guard resultCode == SQLITE_DONE else { throw CaptureError.invalid("Antigravity metadata: " + String(cString: sqlite3_errmsg(db))) }
         return result
     }
 
