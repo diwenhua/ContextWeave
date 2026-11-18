@@ -46,12 +46,15 @@ public struct SessionMessage: Codable, Sendable, Equatable {
     public let content: String
     /// UTC Unix timestamp in milliseconds, if supplied by the source.
     public let timestampMilliseconds: Int64?
+    /// Source order when stable message IDs are UUIDs rather than line ordinals.
+    public let sourceOrdinal: Int?
 
-    public init(id: String, role: Role, content: String, timestampMilliseconds: Int64?) {
+    public init(id: String, role: Role, content: String, timestampMilliseconds: Int64?, sourceOrdinal: Int? = nil) {
         self.id = id
         self.role = role
         self.content = content
         self.timestampMilliseconds = timestampMilliseconds
+        self.sourceOrdinal = sourceOrdinal
     }
 }
 

@@ -9,6 +9,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var dshSessionsPath: String
     /// Cursor User directory, or empty to use its macOS default.
     public var cursorUserPath: String
+    /// Claude project transcripts, or empty to use `CLAUDE_CONFIG_DIR/projects` / `~/.claude/projects`.
+    public var claudeProjectsPath: String
     /// Antigravity app data directory, or empty to use `ANTIGRAVITY_HOME` / `~/.gemini/antigravity`.
     public var antigravityPath: String
     /// Absolute file path, or empty to use `CONTEXTWEAVE_DB` / Application Support.
@@ -18,6 +20,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// GUI-only preference; the MCP helper ignores it.
     public var appearance: AppearancePreference
     public var memoryModel: MemoryModelConfiguration
+    /// Agent defaults; individual session overrides live with the session database.
+    public var memoryAutoUpdateAgents: Set<String>
+    public var memoryAutoUpdateMessageThreshold: Int
+
+    public static let defaultMemoryMessageThreshold = 20
+    public static let memoryMessageThresholdChoices = [10, 20, 40]
 
     public static let defaultScanIntervalSeconds = 300
     public static let scanIntervalChoices = [15, 30, 60, 300, 900, 1800]
@@ -27,25 +35,31 @@ public struct AppSettings: Codable, Equatable, Sendable {
         dshSessionsPath: String = "",
         cursorUserPath: String = "",
         antigravityPath: String = "",
+        claudeProjectsPath: String = "",
         databasePath: String = "",
         watchAutomatically: Bool = true,
         scanIntervalSeconds: Int = AppSettings.defaultScanIntervalSeconds,
         appearance: AppearancePreference = .system,
-        memoryModel: MemoryModelConfiguration = MemoryModelConfiguration()
+        memoryModel: MemoryModelConfiguration = MemoryModelConfiguration(),
+        memoryAutoUpdateAgents: Set<String> = [],
+        memoryAutoUpdateMessageThreshold: Int = AppSettings.defaultMemoryMessageThreshold
     ) {
         self.codexSessionsPath = codexSessionsPath
         self.dshSessionsPath = dshSessionsPath
         self.cursorUserPath = cursorUserPath
         self.antigravityPath = antigravityPath
+        self.claudeProjectsPath = claudeProjectsPath
         self.databasePath = databasePath
         self.watchAutomatically = watchAutomatically
         self.scanIntervalSeconds = scanIntervalSeconds
         self.appearance = appearance
         self.memoryModel = memoryModel
+        self.memoryAutoUpdateAgents = memoryAutoUpdateAgents
+        self.memoryAutoUpdateMessageThreshold = Self.memoryMessageThresholdChoices.contains(memoryAutoUpdateMessageThreshold) ? memoryAutoUpdateMessageThreshold : Self.defaultMemoryMessageThreshold
     }
 
     private enum CodingKeys: String, CodingKey {
-        case codexSessionsPath, dshSessionsPath, cursorUserPath, antigravityPath, databasePath, watchAutomatically, scanIntervalSeconds, appearance, memoryModel
+        case claudeProjectsPath, codexSessionsPath, dshSessionsPath, cursorUserPath, antigravityPath, databasePath, watchAutomatically, scanIntervalSeconds, appearance, memoryModel, memoryAutoUpdateAgents, memoryAutoUpdateMessageThreshold
     }
 
     /// Missing or unknown keys fall back to defaults so older files stay readable.
@@ -55,17 +69,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
         dshSessionsPath = try container.decodeIfPresent(String.self, forKey: .dshSessionsPath) ?? ""
         cursorUserPath = try container.decodeIfPresent(String.self, forKey: .cursorUserPath) ?? ""
         antigravityPath = try container.decodeIfPresent(String.self, forKey: .antigravityPath) ?? ""
+        claudeProjectsPath = try container.decodeIfPresent(String.self, forKey: .claudeProjectsPath) ?? ""
         databasePath = try container.decodeIfPresent(String.self, forKey: .databasePath) ?? ""
         watchAutomatically = try container.decodeIfPresent(Bool.self, forKey: .watchAutomatically) ?? true
         let interval = try container.decodeIfPresent(Int.self, forKey: .scanIntervalSeconds) ?? Self.defaultScanIntervalSeconds
         scanIntervalSeconds = Self.scanIntervalChoices.contains(interval) ? interval : Self.defaultScanIntervalSeconds
         let appearance = try container.decodeIfPresent(String.self, forKey: .appearance)
         self.appearance = appearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+        memoryAutoUpdateAgents = try container.decodeIfPresent(Set<String>.self, forKey: .memoryAutoUpdateAgents) ?? []
+        let threshold = try container.decodeIfPresent(Int.self, forKey: .memoryAutoUpdateMessageThreshold) ?? Self.defaultMemoryMessageThreshold
+        memoryAutoUpdateMessageThreshold = Self.memoryMessageThresholdChoices.contains(threshold) ? threshold : Self.defaultMemoryMessageThreshold
         memoryModel = try container.decodeIfPresent(MemoryModelConfiguration.self, forKey: .memoryModel) ?? MemoryModelConfiguration()
     }
 
     public var hasCustomPaths: Bool {
-        !codexSessionsPath.isEmpty || !dshSessionsPath.isEmpty || !cursorUserPath.isEmpty || !antigravityPath.isEmpty || !databasePath.isEmpty
+        !codexSessionsPath.isEmpty || !dshSessionsPath.isEmpty || !cursorUserPath.isEmpty || !antigravityPath.isEmpty || !claudeProjectsPath.isEmpty || !databasePath.isEmpty
     }
 
     /// Explicit app settings win over environment variables; environment variables win over defaults.
@@ -95,7 +113,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
             dshSessions: resolve(dshSessionsPath, fallback: dshHome.appendingPathComponent("sessions")),
             database: resolve(databasePath, fallback: defaultDatabase),
             cursorUser: resolve(cursorUserPath, fallback: home.appendingPathComponent("Library/Application Support/Cursor/User")),
-            antigravityRoot: resolve(antigravityPath, fallback: antigravityHome)
+            antigravityRoot: resolve(antigravityPath, fallback: antigravityHome),
+            claudeProjects: resolve(claudeProjectsPath, fallback: ClaudePaths(environment: environment, home: home).projects)
         )
     }
 
@@ -104,7 +123,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> CaptureConfiguration {
         let paths = resolvedPaths(environment: environment, home: home)
-        return CaptureConfiguration(codexRoot: paths.codexSessions, dshRoot: paths.dshSessions, databaseURL: paths.database, deviceIdentityDirectory: SettingsFile.defaultURL(environment: environment, home: home).deletingLastPathComponent(), cursorUserRoot: paths.cursorUser, antigravityRoot: paths.antigravityRoot)
+        return CaptureConfiguration(codexRoot: paths.codexSessions, dshRoot: paths.dshSessions, databaseURL: paths.database, deviceIdentityDirectory: SettingsFile.defaultURL(environment: environment, home: home).deletingLastPathComponent(), cursorUserRoot: paths.cursorUser, antigravityRoot: paths.antigravityRoot, claudeRoot: paths.claudeProjects)
     }
 
     /// Returns a standardized absolute path, or nil for blank/relative input.
@@ -126,6 +145,7 @@ public struct ResolvedPaths: Equatable, Sendable {
     public let dshSessions: URL
     public let database: URL
     public let cursorUser: URL
+    public let claudeProjects: URL
     public let antigravityRoot: URL
 
     public init(
@@ -133,13 +153,15 @@ public struct ResolvedPaths: Equatable, Sendable {
         dshSessions: URL,
         database: URL,
         cursorUser: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor/User"),
-        antigravityRoot: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/antigravity")
+        antigravityRoot: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/antigravity"),
+        claudeProjects: URL = ClaudePaths().projects
     ) {
         self.codexSessions = codexSessions
         self.dshSessions = dshSessions
         self.database = database
         self.cursorUser = cursorUser
         self.antigravityRoot = antigravityRoot
+        self.claudeProjects = claudeProjects
     }
 }
 

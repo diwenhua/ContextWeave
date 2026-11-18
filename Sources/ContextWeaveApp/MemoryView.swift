@@ -378,7 +378,19 @@ struct MemoryPage: View {
                     .font(.caption)
                     .foregroundStyle(Weave.muted)
                     .lineLimit(1)
-                Toggle(String(localized: "memory.semantic.watch", bundle: .module), isOn: Binding(get: { model.watchedSessions.contains(id) }, set: { model.watch(id, enabled: $0) }))
+                MemoryCoverageStatus(id: id)
+                Picker(String(localized: "memory.semantic.watch", bundle: .module), selection: Binding(
+                    get: { model.memoryUpdatePreferences[id] ?? .inherit },
+                    set: { model.setMemoryUpdate(id, preference: $0) }
+                )) {
+                    Text("memory.update.inherit", bundle: .module).tag(MemoryUpdatePreference.inherit)
+                    Text("memory.update.enabled", bundle: .module).tag(MemoryUpdatePreference.enabled)
+                    Text("memory.update.disabled", bundle: .module).tag(MemoryUpdatePreference.disabled)
+                }
+                Text(model.effectiveMemoryUpdate(id)
+                     ? String(localized: "memory.update.effectiveOn", bundle: .module)
+                     : String(localized: "memory.update.effectiveOff", bundle: .module))
+                    .font(.caption).foregroundStyle(Weave.muted)
                 Text("memory.semantic.privacy", bundle: .module)
                     .font(.caption).foregroundStyle(Weave.muted).fixedSize(horizontal: false, vertical: true)
                 HStack {
@@ -795,4 +807,43 @@ private func memorySourceTitle(_ memory: ProjectMemory, sessions: [SessionSummar
     let match = sessions.first { $0.source.id.agent == memory.agent && $0.source.id.externalID == memory.externalID }
     let title = match?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return title.isEmpty ? memory.externalID : title
+}
+
+private struct MemoryCoverageStatus: View {
+    @EnvironmentObject private var model: HandoffModel
+    let id: SessionID
+    @State private var coverage: MemoryCoverage?
+    @State private var failed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let coverage {
+                Label(String(localized: String.LocalizationValue("memory.coverage." + coverage.status), bundle: .module), systemImage: coverage.status == "current" ? "checkmark.circle" : "clock.badge.exclamationmark")
+                    .foregroundStyle(coverage.status == "current" ? Color.secondary : Color.orange)
+                if coverage.status == "current" || coverage.status == "stale" {
+                    Text(String(format: String(localized: "memory.coverage.progress", bundle: .module), coverage.coveredDialogueMessages, coverage.totalDialogueMessages, coverage.uncoveredMessages))
+                } else {
+                    Text("memory.coverage.unknownHint", bundle: .module)
+                }
+                Text(String(localized: String.LocalizationValue("memory.coverage.auto." + coverage.autoUpdate), bundle: .module))
+                if coverage.autoUpdate != "off" {
+                    Text(String(format: String(localized: "memory.update.accumulation", bundle: .module), coverage.pendingDialogueMessages, coverage.minimumNewMessages))
+                }
+                if let stamp = coverage.updatedAt {
+                    Text(Date(timeIntervalSince1970: Double(stamp) / 1000), style: .relative)
+                }
+            } else if failed {
+                Text("memory.coverage.error", bundle: .module)
+            } else { ProgressView().controlSize(.small) }
+        }
+        .font(.caption)
+        .foregroundStyle(Weave.muted)
+        .task(id: "\(id.agent)|\(id.externalID)|\(model.revision)|\(model.processedMessages)|\(model.watchedSessions.contains(id))|\(model.memoryUpdatePreferences[id]?.rawValue ?? "inherit")") {
+            do {
+                let result = try await model.memoryCoverage(id)
+                guard !Task.isCancelled else { return }
+                coverage = result; failed = false
+            } catch { if !Task.isCancelled { coverage = nil; failed = true } }
+        }
+    }
 }

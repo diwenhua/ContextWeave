@@ -61,11 +61,11 @@
 "settings.appearance.hint" = "跟随系统会随 macOS 外观自动切换；选择会立即应用到所有 ContextWeave 窗口，并保存在设置文件中。";
 
 
-"settings.agents.intro" = "为 Codex、DeepSeek Harness、Cursor 与 Antigravity 写入本地 MCP 服务配置；写入前会备份原文件。";
+"settings.agents.intro" = "为 Codex、DeepSeek Harness、Cursor、Antigravity 与 Claude Code 写入本地 MCP 服务配置；写入前会备份原文件。";
 "settings.agents.connect" = "接入全部 Agent";
 "settings.agents.update" = "更新全部接入";
 "settings.agents.remove" = "移除全部接入";
-"settings.agents.connected" = "已接入";
+"settings.agents.connected" = "已配置";
 "settings.agents.notConnected" = "未接入";
 "settings.agents.unmanaged" = "存在未托管条目";
 "settings.agents.unreadable" = "无法读取";
@@ -82,7 +82,7 @@
 "settings.agents.registeredHelper" = "已登记 Helper：%@";
 "settings.agents.helperUnavailable" = "找不到 MCP Helper：%@。请先构建应用包（./scripts/build-app.sh）。";
 "settings.agents.removeConfirmTitle" = "移除 ContextWeave 全部接入？";
-"settings.agents.removeConfirmMessage" = "将从 Codex 与 DeepSeek Harness 配置中删除带标记的区块，并从 Cursor 的 mcp.json 与 Antigravity 的 mcp_config.json 中移除托管条目；备份文件会保留。";
+"settings.agents.removeConfirmMessage" = "将从 Codex 与 DeepSeek Harness 配置中删除带标记的区块，并从 Cursor、Antigravity 和 Claude Code 配置中移除托管条目；备份文件会保留。";
 "settings.agents.removeConfirm" = "移除";
 "settings.agents.manual" = "手动配置";
 "settings.agents.manualHint" = "仅在需要自行编辑配置文件时使用。四个 Agent 启动同一个 Helper，并共享数据库。";
@@ -117,7 +117,7 @@
 "settings.updates.unavailable" = "仅在构建后的应用包中可检查更新。";
 
 "settings.about.title" = "关于 ContextWeave";
-"settings.about.description" = "面向 Codex、DeepSeek Harness、Cursor 与 Antigravity 的本地优先上下文交接工具，会话数据只保存在这台 Mac 上。";
+"settings.about.description" = "面向 Codex、DeepSeek Harness、Cursor、Antigravity 与 Claude Code 的本地优先上下文交接工具，会话数据只保存在这台 Mac 上。";
 "settings.about.version" = "版本 %@（%@）";
 "settings.about.helper" = "MCP Helper";
 "settings.about.database" = "数据库";
@@ -138,7 +138,7 @@
 "archive.subtitle" = "在原 Agent 中归档或删除的会话。历史只读保留在本地，恢复后会自动回到会话列表。";
 "archive.count" = "%d 个已归档";
 "archive.emptyTitle" = "暂无已归档会话";
-"archive.emptyBody" = "在 Codex、DeepSeek Harness、Cursor 或 Antigravity 中归档或删除会话后，会出现在这里。";
+"archive.emptyBody" = "在 Codex、DeepSeek Harness、Cursor、Antigravity 或 Claude Code 中归档或删除会话后，会出现在这里。";
 "archive.archivedAt" = "归档于 %@";
 "archive.readOnly" = "只读";
 "archive.loading" = "正在加载归档会话…";
@@ -217,3 +217,48 @@
 "memory.conflict.title" = "可能存在冲突 · 待审核";
 "memory.conflict.replace" = "替代并采用原记忆的作用范围";
 "memory.conflict.keep" = "两条可共存，忽略此冲突";
+
+"settings.agents.configureDetected" = "一键配置已检测到的 Agent";
+"settings.agents.detected" = "已检测到应用";
+"settings.agents.notDetected" = "未检测到应用，仍可手动配置";
+"settings.agents.configureOne" = "配置";
+"settings.agents.updateOne" = "更新配置";
+"settings.agents.configuredOne" = "配置已写入";
+"settings.agents.removedOne" = "配置已移除";
+"settings.agents.restartHint" = "自动检测本机支持的 Agent 应用，也可逐个手动配置。配置写入后，请在对应 Agent 中重新加载 MCP 或重启应用；已配置不代表已验证连接。";
+
+"settings.agents.removeOne" = "移除接入";
+"settings.agents.removeOneTitle" = "移除 %@ 的 ContextWeave 接入？";
+"settings.agents.removeOneMessage" = "仅移除此 Agent 中由 ContextWeave 管理的 MCP 配置，保留备份和历史会话。移除后请重新加载 MCP 或重启该 Agent。";
+
+"settings.agents.claudePath" = "Claude Code 配置：%@";
+"settings.agents.claudeHint" = "CLI 与桌面端本地 Code 模式共用此配置。远程会话需在远程设备配置；项目级同名服务可能覆盖用户级配置。";
+"settings.agents.claudeUnmanagedHint" = "已有非 ContextWeave 管理的同名服务，请先在 Claude 中检查；不会覆盖现有配置。";
+
+"memory.coverage.current" = "摘要已覆盖当前正文";
+"memory.coverage.stale" = "摘要待更新";
+"memory.coverage.unknown" = "摘要覆盖范围未知";
+"memory.coverage.missing" = "尚未生成摘要";
+"memory.coverage.progress" = "正文覆盖 %d / %d 条；边界之后还有 %d 条原始消息（含工具结果）";
+"memory.coverage.unknownHint" = "旧摘要或已变更的原文没有可靠覆盖边界。接续将补读原始消息；可重新提取以建立覆盖进度。";
+"memory.coverage.auto.off" = "自动更新未开启；新消息不会自动生成摘要。";
+"memory.coverage.auto.pending" = "自动更新已开启，等待处理（应用需保持运行）。";
+"memory.coverage.auto.retrying" = "上次更新失败，等待重试。";
+"memory.coverage.auto.idle" = "自动更新已开启。";
+"memory.coverage.error" = "暂时无法读取覆盖进度";
+
+"memory.coverage.auto.model_changed" = "模型配置已变更；请重新开启自动更新以使用新模型。";
+
+"settings.agents.memoryAutoUpdate" = "自动更新记忆";
+"settings.agents.memoryAutoUpdateHint" = "应用运行时，为此 Agent 的已有和新会话自动生成、更新记忆。会发送正文到已配置的模型 API 并产生用量；单会话设置优先。";
+"memory.update.inherit" = "跟随 Agent";
+"memory.update.enabled" = "单独开启";
+"memory.update.disabled" = "单独关闭";
+"memory.update.effectiveOn" = "当前生效：自动更新已开启";
+"memory.update.effectiveOff" = "当前生效：自动更新已关闭";
+
+"settings.agents.memoryThreshold" = "自动记忆提取门槛";
+"settings.agents.memoryThresholdCount" = "新增 %d 条正文";
+"settings.agents.memoryThresholdHint" = "适用于所有已开启自动记忆的会话。用户与助手正文合计，工具日志不计数；达到门槛后提取，不足时继续积累。手动提取不受限制，失败任务按退避时间重试。";
+"memory.coverage.auto.accumulating" = "自动更新已开启，正在积累新正文";
+"memory.update.accumulation" = "已积累 %d / %d 条新正文";

@@ -61,11 +61,11 @@
 "settings.appearance.hint" = "System follows the macOS appearance automatically. Your choice applies to every ContextWeave window and is saved in the settings file.";
 
 
-"settings.agents.intro" = "ContextWeave registers a local MCP server with Codex, DeepSeek Harness, Cursor, and Antigravity. It updates each configuration file and backs it up first.";
+"settings.agents.intro" = "ContextWeave registers a local MCP server with Codex, DeepSeek Harness, Cursor, Antigravity, and Claude Code. It updates each configuration file and backs it up first.";
 "settings.agents.connect" = "Connect all agents";
 "settings.agents.update" = "Update all registrations";
 "settings.agents.remove" = "Remove all registrations";
-"settings.agents.connected" = "Connected";
+"settings.agents.connected" = "Configured";
 "settings.agents.notConnected" = "Not connected";
 "settings.agents.unmanaged" = "Unmanaged entry";
 "settings.agents.unreadable" = "Cannot read";
@@ -82,7 +82,7 @@
 "settings.agents.registeredHelper" = "Registered helper: %@";
 "settings.agents.helperUnavailable" = "The MCP helper was not found at %@. Build the app bundle first (./scripts/build-app.sh).";
 "settings.agents.removeConfirmTitle" = "Remove ContextWeave registrations?";
-"settings.agents.removeConfirmMessage" = "The managed blocks are removed from the Codex and DeepSeek Harness files, and the managed entries are removed from Cursor's mcp.json and Antigravity's mcp_config.json. Backups are kept next to each file.";
+"settings.agents.removeConfirmMessage" = "The managed blocks are removed from the Codex and DeepSeek Harness files, and the managed entries are removed from Cursor, Antigravity, and Claude Code configurations. Backups are kept next to each file.";
 "settings.agents.removeConfirm" = "Remove";
 "settings.agents.manual" = "Manual configuration";
 "settings.agents.manualHint" = "Use these entries only if you prefer to edit the files yourself. All four agents launch the same helper and share the database.";
@@ -117,7 +117,7 @@
 "settings.updates.unavailable" = "Update checks are available in the built app bundle only.";
 
 "settings.about.title" = "About ContextWeave";
-"settings.about.description" = "Local-first project context handoff for Codex, DeepSeek Harness, Cursor, and Antigravity. Session data stays on this Mac.";
+"settings.about.description" = "Local-first project context handoff for Codex, DeepSeek Harness, Cursor, Antigravity, and Claude Code. Session data stays on this Mac.";
 "settings.about.version" = "Version %@ (%@)";
 "settings.about.helper" = "MCP helper";
 "settings.about.database" = "Database";
@@ -138,7 +138,7 @@
 "archive.subtitle" = "Conversations archived or deleted in the original agent. History is kept read-only locally, and restored conversations return to Sessions automatically.";
 "archive.count" = "%d archived";
 "archive.emptyTitle" = "No archived conversations";
-"archive.emptyBody" = "When you archive or delete a conversation in Codex, DeepSeek Harness, Cursor, or Antigravity, it will appear here.";
+"archive.emptyBody" = "When you archive or delete a conversation in Codex, DeepSeek Harness, Cursor, Antigravity, or Claude Code, it will appear here.";
 "archive.archivedAt" = "Archived %@";
 "archive.readOnly" = "Read-only";
 "archive.loading" = "Loading archived conversation…";
@@ -217,3 +217,48 @@
 "memory.conflict.title" = "Potential conflict · review required";
 "memory.conflict.replace" = "Replace and adopt existing scope";
 "memory.conflict.keep" = "These can coexist — dismiss conflict";
+
+"settings.agents.configureDetected" = "Configure detected agents";
+"settings.agents.detected" = "App detected";
+"settings.agents.notDetected" = "App not detected; manual setup available";
+"settings.agents.configureOne" = "Configure";
+"settings.agents.updateOne" = "Update configuration";
+"settings.agents.configuredOne" = "Configuration saved";
+"settings.agents.removedOne" = "Configuration removed";
+"settings.agents.restartHint" = "Detects supported agent apps on this Mac. You can also configure each individually. Reload MCP or restart the agent after setup; saved configuration does not verify a live connection.";
+
+"settings.agents.removeOne" = "Remove registration";
+"settings.agents.removeOneTitle" = "Remove ContextWeave from %@?";
+"settings.agents.removeOneMessage" = "Removes only this agent’s ContextWeave-managed MCP configuration. Backups and captured sessions are retained. Reload MCP or restart this agent afterwards.";
+
+"settings.agents.claudePath" = "Claude Code configuration: %@";
+"settings.agents.claudeHint" = "Shared by CLI and local Desktop Code sessions. Remote sessions require setup on the remote device; project-scoped servers may override this registration.";
+"settings.agents.claudeUnmanagedHint" = "An existing contextweave server is not managed by ContextWeave. Review it in Claude before configuring; it will not be overwritten.";
+
+"memory.coverage.current" = "Summary covers current dialogue";
+"memory.coverage.stale" = "Summary needs updating";
+"memory.coverage.unknown" = "Summary coverage unknown";
+"memory.coverage.missing" = "No summary yet";
+"memory.coverage.progress" = "Dialogue covered: %d / %d; %d source messages after the boundary (including tools)";
+"memory.coverage.unknownHint" = "No verified source boundary is available. Handoff includes source messages; extract again to establish coverage.";
+"memory.coverage.auto.off" = "Automatic updating is off; new messages do not trigger summarization.";
+"memory.coverage.auto.pending" = "Automatic update pending; keep the app running.";
+"memory.coverage.auto.retrying" = "Last update failed; waiting to retry.";
+"memory.coverage.auto.idle" = "Automatic updating enabled.";
+"memory.coverage.error" = "Unable to read coverage";
+
+"memory.coverage.auto.model_changed" = "The configured model changed; enable automatic updating for the new model.";
+
+"settings.agents.memoryAutoUpdate" = "Automatically update memory";
+"settings.agents.memoryAutoUpdateHint" = "While the app runs, generate and update memory for existing and new sessions from this agent. Sends dialogue to the configured model API and uses tokens. Session overrides take precedence.";
+"memory.update.inherit" = "Follow agent";
+"memory.update.enabled" = "Enable for this session";
+"memory.update.disabled" = "Disable for this session";
+"memory.update.effectiveOn" = "Effective setting: automatic updates on";
+"memory.update.effectiveOff" = "Effective setting: automatic updates off";
+
+"settings.agents.memoryThreshold" = "Automatic memory threshold";
+"settings.agents.memoryThresholdCount" = "%d new dialogue messages";
+"settings.agents.memoryThresholdHint" = "Applies to sessions with automatic memory enabled. Counts new user and assistant text, excluding tool logs. Extracts at the threshold; smaller updates accumulate. Manual extraction is immediate. Failed jobs retry with backoff.";
+"memory.coverage.auto.accumulating" = "Automatic updates enabled; accumulating new dialogue";
+"memory.update.accumulation" = "Accumulated %d / %d new dialogue messages";

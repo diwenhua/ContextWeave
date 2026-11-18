@@ -171,21 +171,41 @@ private extension URL {
 // MARK: - Agents
 
 private struct AgentsSettingsView: View {
+    @EnvironmentObject private var store: SettingsStore
     @State private var statuses: [AgentConnectionStatus] = []
+    @State private var detectedAgents: Set<String> = []
+    @State private var agentFeedback: [String: SettingsFeedback] = [:]
     @State private var feedback: SettingsFeedback?
     @State private var confirmRemoval = false
+    @State private var removalAgent: String?
     @State private var showSnippets = false
 
     private var currentHelper: String { AppPaths.helperExecutable }
     private var helperAvailable: Bool { AppPaths.helperAvailable }
     private var anyConnected: Bool { statuses.contains { $0.state == .connected } }
-    private var hasBlockingIssue: Bool { statuses.contains { $0.state == .unmanaged || $0.state == .unreadable } }
+
 
     var body: some View {
         SettingsPage(
             title: String(localized: "settings.section.agents", bundle: .module),
             subtitle: String(localized: "settings.agents.intro", bundle: .module)
         ) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker(String(localized: "settings.agents.memoryThreshold", bundle: .module), selection: Binding(
+                        get: { store.settings.memoryAutoUpdateMessageThreshold },
+                        set: { value in store.update { $0.memoryAutoUpdateMessageThreshold = value } }
+                    )) {
+                        ForEach(AppSettings.memoryMessageThresholdChoices, id: \.self) { count in
+                            Text(String(format: String(localized: "settings.agents.memoryThresholdCount", bundle: .module), count)).tag(count)
+                        }
+                    }
+                    Text("settings.agents.memoryThresholdHint", bundle: .module)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(6)
+            }
             GroupBox {
                 VStack(spacing: 0) {
                     ForEach(statuses.indices, id: \.self) { index in
@@ -205,13 +225,16 @@ private struct AgentsSettingsView: View {
             }
 
             HStack {
-                Button(connectTitle) { connect() }
+                Button(String(localized: "settings.agents.configureDetected", bundle: .module)) {
+                    configure(agents: statuses.filter { detectedAgents.contains($0.agent) }.map(\.agent))
+                }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!helperAvailable || hasBlockingIssue)
+                    .disabled(!helperAvailable || detectedAgents.isEmpty)
                 Button(String(localized: "settings.agents.remove", bundle: .module)) {
+                    removalAgent = nil
                     confirmRemoval = true
                 }
-                .disabled(!anyConnected || hasBlockingIssue)
+                .disabled(!anyConnected)
                 Spacer()
                 Button {
                     refresh()
@@ -221,12 +244,10 @@ private struct AgentsSettingsView: View {
                 .help(Text("settings.agents.refresh", bundle: .module))
             }
 
-            if let hint = blockingHint {
-                Label(hint, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("settings.agents.restartHint", bundle: .module)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !helperAvailable {
                 Label(
@@ -261,6 +282,9 @@ private struct AgentsSettingsView: View {
                     Text(String(format: String(localized: "settings.agents.antigravityPath", bundle: .module), AppPaths.antigravityConfigHome.appendingPathComponent("mcp_config.json").path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.antigravitySnippet(executable: currentHelper))
+                    Text(String(format: String(localized: "settings.agents.claudePath", bundle: .module), ClaudePaths().configuration.path))
+                        .font(.caption.bold())
+                    snippet(AgentIntegration.claudeSnippet(executable: currentHelper))
                 }
                 .padding(.top, 8)
             } label: {
@@ -277,21 +301,19 @@ private struct AgentsSettingsView: View {
         }
         .onAppear { refresh() }
         .confirmationDialog(
-            Text("settings.agents.removeConfirmTitle", bundle: .module),
+            Text(removalAgent.map {
+                String(format: String(localized: "settings.agents.removeOneTitle", bundle: .module), HandoffModel.agentName($0))
+            } ?? String(localized: "settings.agents.removeConfirmTitle", bundle: .module)),
             isPresented: $confirmRemoval,
             titleVisibility: .visible
         ) {
             Button(String(localized: "settings.agents.removeConfirm", bundle: .module), role: .destructive) { remove() }
             Button(String(localized: "settings.cancel", bundle: .module), role: .cancel) {}
         } message: {
-            Text("settings.agents.removeConfirmMessage", bundle: .module)
+            Text(removalAgent == nil
+                 ? String(localized: "settings.agents.removeConfirmMessage", bundle: .module)
+                 : String(localized: "settings.agents.removeOneMessage", bundle: .module))
         }
-    }
-
-    private var connectTitle: String {
-        anyConnected
-            ? String(localized: "settings.agents.update", bundle: .module)
-            : String(localized: "settings.agents.connect", bundle: .module)
     }
 
     @ViewBuilder private func statusRow(_ status: AgentConnectionStatus) -> some View {
@@ -303,6 +325,51 @@ private struct AgentsSettingsView: View {
                 Label(stateLabel(status), systemImage: stateIcon(status))
                     .font(.caption)
                     .foregroundStyle(stateColor(status))
+            }
+            HStack {
+                Text(detectedAgents.contains(status.agent)
+                     ? String(localized: "settings.agents.detected", bundle: .module)
+                     : String(localized: "settings.agents.notDetected", bundle: .module))
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(status.state == .connected
+                       ? String(localized: "settings.agents.updateOne", bundle: .module)
+                       : String(localized: "settings.agents.configureOne", bundle: .module)) {
+                    configure(agents: [status.agent])
+                }
+                .disabled(!helperAvailable || status.state == .unmanaged || status.state == .unreadable)
+                if status.state == .connected {
+                    Button(String(localized: "settings.agents.removeOne", bundle: .module), role: .destructive) {
+                        removalAgent = status.agent
+                        confirmRemoval = true
+                    }
+                }
+            }
+            Toggle(String(localized: "settings.agents.memoryAutoUpdate", bundle: .module), isOn: Binding(
+                get: { store.settings.memoryAutoUpdateAgents.contains(status.agent) },
+                set: { enabled in
+                    store.update {
+                        if enabled { $0.memoryAutoUpdateAgents.insert(status.agent) }
+                        else { $0.memoryAutoUpdateAgents.remove(status.agent) }
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            Text("settings.agents.memoryAutoUpdateHint", bundle: .module)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if status.agent == "claude" {
+                Text("settings.agents.claudeHint", bundle: .module)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let result = agentFeedback[status.agent] {
+                Text(result.text)
+                    .font(.caption)
+                    .foregroundStyle(result.isError ? Color.red : Color.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Text(String(format: String(localized: "settings.agents.config", bundle: .module), AppPaths.abbreviate(status.configPath)))
                 .font(.caption)
@@ -326,15 +393,12 @@ private struct AgentsSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var blockingHint: String? {
-        statuses.first(where: { $0.state == .unmanaged || $0.state == .unreadable }).flatMap { stateHint($0) }
-    }
-
     private func stateHint(_ status: AgentConnectionStatus) -> String? {
         switch status.state {
         case .notConfigured:
             return nil
         case .unmanaged:
+            if status.agent == "claude" { return String(localized: "settings.agents.claudeUnmanagedHint", bundle: .module) }
             if status.agent == "cursor" {
                 return String(localized: "settings.agents.cursorUnmanagedHint", bundle: .module)
             }
@@ -411,40 +475,55 @@ private struct AgentsSettingsView: View {
     }
 
     private func refresh() {
+        let bundleIDs = [
+            "codex": "com.openai.codex",
+            "dsh": "com.deepseek.dsh",
+            "cursor": "com.todesktop.230313mzl4w4u92",
+            "antigravity": "com.google.antigravity",
+            "claude": "com.anthropic.claudefordesktop"
+        ]
+        detectedAgents = Set(bundleIDs.compactMap { agent, bundleID in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) == nil ? nil : agent
+        })
+        if AppPaths.claudeCLIAvailable { detectedAgents.insert("claude") }
         statuses = AgentIntegration.status(codexHome: AppPaths.codexHome, dshHome: AppPaths.dshHome)
             + [
                 AgentIntegration.cursorStatus(home: AppPaths.cursorHome),
-                AgentIntegration.antigravityStatus(home: AppPaths.antigravityConfigHome)
+                AgentIntegration.antigravityStatus(home: AppPaths.antigravityConfigHome),
+                AgentIntegration.claudeStatus(home: AppPaths.claudeConfigHome)
             ]
     }
 
-    private func connect() {
-        do {
-            var messages = try AgentIntegration.connect(
-                executable: currentHelper,
-                codexHome: AppPaths.codexHome,
-                dshHome: AppPaths.dshHome
-            )
-            messages += try AgentIntegration.configureCursor(executable: currentHelper, home: AppPaths.cursorHome)
-            messages += try AgentIntegration.configureAntigravity(executable: currentHelper, home: AppPaths.antigravityConfigHome)
-            feedback = SettingsFeedback(text: messages.joined(separator: "\n"))
-        } catch {
-            feedback = SettingsFeedback(text: error.localizedDescription, isError: true)
+    private func configure(agents: [String], removing: Bool = false) {
+        let homes = ["codex": AppPaths.codexHome, "dsh": AppPaths.dshHome,
+                     "cursor": AppPaths.cursorHome, "antigravity": AppPaths.antigravityConfigHome, "claude": AppPaths.claudeConfigHome]
+        agentFeedback = [:]
+        var messages: [String] = []
+        var failed = false
+        // Each agent has its own failure boundary; a conflict never blocks the others.
+        for agent in agents {
+            guard let home = homes[agent] else { continue }
+            do {
+                _ = try AgentIntegration.configure(agent: agent, executable: removing ? nil : currentHelper, home: home)
+                let message = String(localized: removing ? "settings.agents.removedOne" : "settings.agents.configuredOne", bundle: .module)
+                agentFeedback[agent] = SettingsFeedback(text: message)
+                messages.append("\(HandoffModel.agentName(agent)): \(message)")
+            } catch {
+                failed = true
+                agentFeedback[agent] = SettingsFeedback(text: error.localizedDescription, isError: true)
+                messages.append("\(HandoffModel.agentName(agent)): \(error.localizedDescription)")
+            }
         }
+        feedback = SettingsFeedback(text: messages.joined(separator: "\n"), isError: failed)
         refresh()
     }
 
     private func remove() {
-        do {
-            var messages = try AgentIntegration.remove(codexHome: AppPaths.codexHome, dshHome: AppPaths.dshHome)
-            messages += try AgentIntegration.configureCursor(executable: nil, home: AppPaths.cursorHome)
-            messages += try AgentIntegration.configureAntigravity(executable: nil, home: AppPaths.antigravityConfigHome)
-            feedback = SettingsFeedback(text: messages.joined(separator: "\n"))
-        } catch {
-            feedback = SettingsFeedback(text: error.localizedDescription, isError: true)
-        }
-        refresh()
+        let agents = removalAgent.map { [$0] } ?? statuses.filter { $0.state == .connected }.map(\.agent)
+        configure(agents: agents, removing: true)
+        removalAgent = nil
     }
+
 }
 
 // MARK: - Capture

@@ -88,7 +88,7 @@ final class SessionStore {
         do {
             sqlite3_busy_timeout(db, 10_000)
             let version = try userVersion()
-            guard version <= 13 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 15 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             try run("PRAGMA journal_mode=WAL")
             try run("PRAGMA foreign_keys=ON")
             try migrate()
@@ -312,40 +312,149 @@ final class SessionStore {
         try run("UPDATE memories SET scope=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [scope, id])
     }
 
-    func watch(_ id: SessionID, model: MemoryModelConfiguration?) throws {
-        if let model {
-            try run("INSERT OR REPLACE INTO semantic_watch(agent,external_id,endpoint,model) VALUES(?,?,?,?)", [id.agent,id.externalID,model.endpoint,model.model])
-        } else {
-            try run("DELETE FROM semantic_watch WHERE agent=? AND external_id=?", [id.agent,id.externalID])
+    func memoryUpdatePreferences() throws -> [SessionID: MemoryUpdatePreference] {
+        var result: [SessionID: MemoryUpdatePreference] = [:]
+        for row in try rows("SELECT agent,external_id,mode FROM semantic_preferences") {
+            if let agent = row[0], let external = row[1], let mode = row[2].flatMap(MemoryUpdatePreference.init(rawValue:)) {
+                result[try SessionID(agent: agent, externalID: external)] = mode
+            }
         }
+        return result
+    }
+
+    func setMemoryUpdatePreference(_ id: SessionID, preference: MemoryUpdatePreference) throws {
+        guard try summary(id) != nil else { throw CaptureError.invalid("Session not found") }
+        if preference == .inherit {
+            try run("DELETE FROM semantic_preferences WHERE agent=? AND external_id=?", [id.agent,id.externalID])
+        } else {
+            try run("INSERT OR REPLACE INTO semantic_preferences VALUES(?,?,?)", [id.agent,id.externalID,preference.rawValue])
+        }
+        if preference == .disabled { try disableWatch(id) }
+    }
+
+    private func disableWatch(_ id: SessionID) throws {
+        try run("UPDATE semantic_watch SET enabled=0,revision=revision+1 WHERE agent=? AND external_id=? AND enabled=1", [id.agent,id.externalID])
+    }
+
+    private func enableWatch(_ id: SessionID, model: MemoryModelConfiguration) throws {
+        // Never reset the revision when toggling: an old in-flight completion must
+        // not acknowledge a newly enabled or retargeted subscription.
+        try run("INSERT INTO semantic_watch(agent,external_id,endpoint,model) VALUES(?,?,?,?) ON CONFLICT(agent,external_id) DO UPDATE SET enabled=1,endpoint=excluded.endpoint,model=excluded.model,revision=semantic_watch.revision+1,dirty=CASE WHEN semantic_watch.endpoint!=excluded.endpoint OR semantic_watch.model!=excluded.model THEN 1 ELSE semantic_watch.dirty END,failures=0,retry_at=0 WHERE semantic_watch.enabled=0 OR semantic_watch.endpoint!=excluded.endpoint OR semantic_watch.model!=excluded.model", [id.agent,id.externalID,model.endpoint,model.model])
+    }
+
+    /// Materialize effective policy without resetting clean jobs or retry timers.
+    func synchronizeMemoryUpdates(agents: Set<String>, model: MemoryModelConfiguration) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            let preferences = try memoryUpdatePreferences()
+            var eligible: Set<SessionID> = []
+            for row in try rows("SELECT agent,external_id FROM sessions WHERE archived_at IS NULL AND stable_project_id IS NOT NULL AND message_count>0") {
+                let id = try SessionID(agent: row[0] ?? "", externalID: row[1] ?? "")
+                if (preferences[id] ?? .inherit).isEnabled(agentDefault: agents.contains(id.agent)) { eligible.insert(id) }
+            }
+            for row in try rows("SELECT agent,external_id FROM semantic_watch WHERE enabled=1") {
+                let id = try SessionID(agent: row[0] ?? "", externalID: row[1] ?? "")
+                if !eligible.contains(id) { try disableWatch(id) }
+            }
+            for id in eligible { try enableWatch(id, model: model) }
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
+
+    func watch(_ id: SessionID, model: MemoryModelConfiguration?) throws {
+        try setMemoryUpdatePreference(id, preference: model == nil ? .disabled : .enabled)
+        if let model { try enableWatch(id, model: model) }
     }
 
     func watched(_ model: MemoryModelConfiguration, due: Bool) throws -> [(SessionID, String)] {
         let filter = due ? " AND w.dirty=1 AND w.retry_at<=unixepoch() AND s.archived_at IS NULL ORDER BY w.failures,w.rowid" : ""
-        return try rows("SELECT w.agent,w.external_id,w.revision FROM semantic_watch w JOIN sessions s USING(agent,external_id) WHERE w.endpoint=? AND w.model=?" + filter, [model.endpoint,model.model]).map {
+        return try rows("SELECT w.agent,w.external_id,w.revision FROM semantic_watch w JOIN sessions s USING(agent,external_id) WHERE w.enabled=1 AND w.endpoint=? AND w.model=?" + filter, [model.endpoint,model.model]).map {
             (try SessionID(agent: $0[0] ?? "", externalID: $0[1] ?? ""), $0[2] ?? "0")
+        }
+    }
+
+    /// Count only net-new dialogue since the last saved checkpoint. Tool events,
+    /// metadata updates, and replayed UUIDs do not spend the automatic-call budget.
+    func pendingDialogueMessages(_ id: SessionID) throws -> Int {
+        let total = try count("SELECT COUNT(*) FROM messages WHERE agent=? AND external_id=? AND role IN ('user','assistant')", [id.agent,id.externalID])
+        let covered = Int(try text("SELECT dialogue_count FROM semantic_coverage WHERE agent=? AND external_id=? AND EXISTS (SELECT 1 FROM memories WHERE id=?)", [id.agent,id.externalID,"semantic-checkpoint|\(id.agent)|\(id.externalID)"]) ?? "") ?? 0
+        return max(0, total - covered)
+    }
+
+    func pendingMemoryExtractions(_ model: MemoryModelConfiguration, minimumNewMessages: Int) throws -> [(SessionID, String)] {
+        let threshold = max(1, minimumNewMessages)
+        return try watched(model, due: true).filter { id, _ in
+            // A partially completed failed job must finish even if its earlier
+            // successful batches reduced the remaining count below the threshold.
+            let failures = Int(try text("SELECT failures FROM semantic_watch WHERE agent=? AND external_id=?", [id.agent,id.externalID]) ?? "") ?? 0
+            if failures > 0 { return true }
+            return try pendingDialogueMessages(id) >= threshold
         }
     }
 
     func finishWatch(_ id: SessionID, revision: String, success: Bool) throws {
         let update = success ? "dirty=0,failures=0,retry_at=0" : "failures=failures+1,retry_at=unixepoch()+min(3600,30*(1<<min(failures,7)))"
-        try run("UPDATE semantic_watch SET " + update + " WHERE agent=? AND external_id=? AND revision=?", [id.agent,id.externalID,revision])
+        try run("UPDATE semantic_watch SET " + update + " WHERE agent=? AND external_id=? AND revision=? AND enabled=1", [id.agent,id.externalID,revision])
     }
 
     func semanticPage(_ id: SessionID, offset: Int, limit: Int) throws -> [SessionMessage] {
         try rows("SELECT message_id,role,content,timestamp FROM messages WHERE agent=? AND external_id=? AND role IN ('user','assistant') ORDER BY ordinal,message_id LIMIT ? OFFSET ?", [id.agent,id.externalID,String(limit),String(offset)]).map(Self.message(from:))
     }
 
+    private func prefixDigest(_ id: SessionID, count: Int) throws -> String {
+        var hash = SHA256()
+        var offset = 0
+        while offset < count {
+            let page = try messages(id, offset: offset, limit: min(100, count - offset))
+            guard !page.isEmpty else { throw CaptureError.invalid("Memory source changed") }
+            for message in page {
+                hash.update(data: try JSONEncoder().encode([message.id, message.role.rawValue, message.content]))
+            }
+            offset += page.count
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    func memorySourceSnapshot(_ id: SessionID, through lastID: String) throws -> MemorySourceSnapshot {
+        guard let ordinal = try text("SELECT ordinal FROM messages WHERE agent=? AND external_id=? AND message_id=?", [id.agent,id.externalID,lastID]) else { throw CaptureError.invalid("Memory source missing") }
+        let size = try count("SELECT COUNT(*) FROM messages WHERE agent=? AND external_id=? AND (ordinal<? OR (ordinal=? AND message_id<=?))", [id.agent,id.externalID,ordinal,ordinal,lastID])
+        return MemorySourceSnapshot(count: size, lastID: lastID, digest: try prefixDigest(id, count: size))
+    }
+
+    func memoryCoverage(_ id: SessionID, model: MemoryModelConfiguration? = nil, minimumNewMessages: Int = AppSettings.defaultMemoryMessageThreshold) throws -> MemoryCoverage {
+        let total = try count("SELECT COUNT(*) FROM messages WHERE agent=? AND external_id=?", [id.agent,id.externalID])
+        let dialogue = try count("SELECT COUNT(*) FROM messages WHERE agent=? AND external_id=? AND role IN ('user','assistant')", [id.agent,id.externalID])
+        let pending = try pendingDialogueMessages(id)
+        let threshold = max(1, minimumNewMessages)
+        let watch = try rows("SELECT dirty,failures,endpoint,model FROM semantic_watch WHERE agent=? AND external_id=? AND enabled=1", [id.agent,id.externalID]).first
+        let automatic = watch.map { row in
+            if let model, row[2] != model.endpoint || row[3] != model.model { return "model_changed" }
+            return row[1] != "0" ? "retrying" : row[0] == "1" ? (pending >= threshold ? "pending" : "accumulating") : "idle"
+        } ?? "off"
+        let row = try rows("SELECT covered_count,dialogue_count,last_message_id,prefix_digest,updated_at FROM semantic_coverage WHERE agent=? AND external_id=?", [id.agent,id.externalID]).first
+        let checkpoint = try text("SELECT content FROM memories WHERE id=?", ["semantic-checkpoint|\(id.agent)|\(id.externalID)"])
+        let hasLegacy = try count("SELECT COUNT(*) FROM memories WHERE agent=? AND external_id=? AND status='checkpoint'", [id.agent,id.externalID]) > 0
+        guard let row, checkpoint != nil, let covered = row[0].flatMap(Int.init), covered <= total,
+              try prefixDigest(id, count: covered) == row[3],
+              try messages(id, offset: max(0, covered - 1), limit: 1).first?.id == row[2] else {
+            return MemoryCoverage(status: hasLegacy ? "unknown" : "missing", reason: row != nil ? "covered_source_changed" : hasLegacy ? "legacy_checkpoint_without_boundary" : "not_extracted", coveredMessages: 0, totalMessages: total, coveredDialogueMessages: 0, totalDialogueMessages: dialogue, lastCoveredMessageID: nil, updatedAt: nil, pendingDialogueMessages: pending, minimumNewMessages: threshold, autoUpdate: automatic)
+        }
+        return MemoryCoverage(status: covered == total ? "current" : "stale", reason: covered == total ? "up_to_date" : "new_source_messages", coveredMessages: covered, totalMessages: total, coveredDialogueMessages: Int(row[1] ?? "") ?? 0, totalDialogueMessages: dialogue, lastCoveredMessageID: row[2], updatedAt: row[4].flatMap(Int64.init), pendingDialogueMessages: pending, minimumNewMessages: threshold, autoUpdate: automatic)
+    }
+
     func cachedCheckpoint(_ id: SessionID, offset: Int, digest: String) throws -> String? {
         try text("SELECT checkpoint FROM semantic_batches WHERE agent=? AND external_id=? AND position=? AND digest=?", [id.agent,id.externalID,String(offset),digest])
     }
 
-    func saveSemanticMemory(_ result: SemanticMemoryExtraction, session id: SessionID, expected: [SessionMessage], offset: Int = 0, digest: String? = nil) throws {
+    func saveSemanticMemory(_ result: SemanticMemoryExtraction, session id: SessionID, expected: [SessionMessage], offset: Int = 0, digest: String? = nil, sourceSnapshot: MemorySourceSnapshot? = nil) throws {
         try run("BEGIN IMMEDIATE")
         do {
             guard let summary = try summary(id), let project = summary.stableProjectID else { throw CaptureError.invalid("Session has no project") }
             let current = try semanticPage(id, offset: offset, limit: expected.count)
             guard current == expected else { throw CaptureError.invalid("Conversation changed during extraction; retry") }
+            guard let last = expected.last else { throw CaptureError.invalid("Empty memory batch") }
+            let snapshot = try memorySourceSnapshot(id, through: last.id)
+            if let sourceSnapshot, sourceSnapshot != snapshot { throw CaptureError.invalid("Covered conversation changed during extraction; retry") }
             let allowed = Set(expected.filter { $0.role == .user }.map(\.id))
             for candidate in result.candidates {
                 guard allowed.contains(candidate.sourceMessageID) else { throw CaptureError.invalid("Invalid memory source") }
@@ -355,6 +464,8 @@ final class SessionStore {
             }
             let checkpointID = "semantic-checkpoint|\(id.agent)|\(id.externalID)"
             try run("INSERT INTO memories(id,stable_project_id,agent,external_id,kind,content,updated_at,status,scope) VALUES(?,?,?,?,?,?,?,'checkpoint','session') ON CONFLICT(id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at,stable_project_id=excluded.stable_project_id", [checkpointID,project,id.agent,id.externalID,"summary",result.checkpoint,String(summary.lastActivity)])
+            let generatedAt = String(Int64(Date().timeIntervalSince1970 * 1000))
+            try run("INSERT OR REPLACE INTO semantic_coverage VALUES(?,?,?,?,?,?,?)", [id.agent,id.externalID,String(snapshot.count),String(offset + expected.count),snapshot.lastID,snapshot.digest,generatedAt])
             if let digest {
                 try run("INSERT OR REPLACE INTO semantic_batches VALUES(?,?,?,?,?)", [id.agent,id.externalID,String(offset),digest,result.checkpoint])
             }
@@ -496,7 +607,7 @@ final class SessionStore {
         try run("BEGIN IMMEDIATE")
         do {
             let version = try userVersion()
-            guard version <= 13 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 15 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             if version < 2 {
                 if try columns("sessions").contains("payload") { try migratePayload() }
                 try createSchema()
@@ -583,6 +694,19 @@ final class SessionStore {
                 try run("CREATE TABLE IF NOT EXISTS memory_conflict_checks(digest TEXT PRIMARY KEY NOT NULL)")
                 try run("PRAGMA user_version = 13")
             }
+            if version < 14 {
+                try run("CREATE TABLE IF NOT EXISTS semantic_coverage(agent TEXT, external_id TEXT, covered_count INTEGER NOT NULL, dialogue_count INTEGER NOT NULL, last_message_id TEXT NOT NULL, prefix_digest TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(agent,external_id))")
+                try run("PRAGMA user_version = 14")
+            }
+            if version < 15 {
+                try run("CREATE TABLE IF NOT EXISTS semantic_preferences(agent TEXT NOT NULL,external_id TEXT NOT NULL,mode TEXT NOT NULL CHECK(mode IN ('enabled','disabled')),PRIMARY KEY(agent,external_id))")
+                if try !columns("semantic_watch").contains("enabled") {
+                    try run("ALTER TABLE semantic_watch ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+                }
+                // Existing opt-ins stay explicit; absent subscriptions become inheritance.
+                try run("INSERT OR IGNORE INTO semantic_preferences SELECT agent,external_id,'enabled' FROM semantic_watch WHERE enabled=1")
+                try run("PRAGMA user_version = 15")
+            }
             try run("COMMIT")
         } catch { try? run("ROLLBACK"); throw error }
     }
@@ -621,7 +745,7 @@ final class SessionStore {
         try run("INSERT INTO capture_files(path, inode, parser_version, observed_size, observed_mtime_ms, offset, pending, line_index, external_id, project, ordinals, rejected, run_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET inode=excluded.inode, parser_version=excluded.parser_version, observed_size=excluded.observed_size, observed_mtime_ms=excluded.observed_mtime_ms, offset=excluded.offset, pending=excluded.pending, line_index=excluded.line_index, external_id=excluded.external_id, project=excluded.project, ordinals=excluded.ordinals, rejected=excluded.rejected, run_state=excluded.run_state", [path, cursor.inode, cursor.parserVersion, String(cursor.observedSize), String(cursor.observedMtimeMS), String(cursor.offset), cursor.pending, String(cursor.lineIndex), cursor.externalID, cursor.project, cursor.ordinals ? "1" : "0", cursor.rejected ? "1" : "0", cursor.runState])
     }
     private func insertMessages(_ session: Session, path: String) throws {
-        let sql = "INSERT INTO messages(agent, external_id, message_id, source_path, role, content, timestamp, ordinal) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(agent, external_id, message_id) DO UPDATE SET source_path=excluded.source_path, role=excluded.role, content=excluded.content, timestamp=excluded.timestamp, ordinal=excluded.ordinal"
+        let sql = "INSERT INTO messages(agent, external_id, message_id, source_path, role, content, timestamp, ordinal) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(agent, external_id, message_id) DO UPDATE SET source_path=excluded.source_path, role=excluded.role, content=excluded.content, timestamp=excluded.timestamp, ordinal=CASE WHEN excluded.agent='claude' THEN messages.ordinal ELSE excluded.ordinal END"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { throw error() }
         defer { sqlite3_finalize(stmt) }
@@ -635,7 +759,7 @@ final class SessionStore {
                 if result != SQLITE_OK { throw error() }
             }
             let timestampResult = message.timestampMilliseconds.map { sqlite3_bind_text(stmt, 7, String($0), -1, transient) } ?? sqlite3_bind_null(stmt, 7)
-            if timestampResult != SQLITE_OK || sqlite3_bind_text(stmt, 8, String(Self.ordinal(of: message.id)), -1, transient) != SQLITE_OK { throw error() }
+            if timestampResult != SQLITE_OK || sqlite3_bind_text(stmt, 8, String(message.sourceOrdinal ?? Self.ordinal(of: message.id)), -1, transient) != SQLITE_OK { throw error() }
             guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
         }
     }

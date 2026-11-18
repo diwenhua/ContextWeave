@@ -5,11 +5,13 @@ public struct CaptureConfiguration: Sendable, Equatable {
     public let codexRoot: URL
     public let dshRoot: URL
     public let cursorUserRoot: URL?
+    public let claudeRoot: URL?
     public let antigravityRoot: URL?
     public let databaseURL: URL
     public let deviceIdentityDirectory: URL
-    public init(codexRoot: URL, dshRoot: URL, databaseURL: URL, deviceIdentityDirectory: URL? = nil, cursorUserRoot: URL? = nil, antigravityRoot: URL? = nil) {
+    public init(codexRoot: URL, dshRoot: URL, databaseURL: URL, deviceIdentityDirectory: URL? = nil, cursorUserRoot: URL? = nil, antigravityRoot: URL? = nil, claudeRoot: URL? = nil) {
         self.codexRoot = codexRoot; self.dshRoot = dshRoot; self.databaseURL = databaseURL; self.cursorUserRoot = cursorUserRoot; self.antigravityRoot = antigravityRoot
+        self.claudeRoot = claudeRoot
         self.deviceIdentityDirectory = deviceIdentityDirectory ?? databaseURL.deletingLastPathComponent()
     }
     /// Honors the shared settings file, then `CODEX_HOME` / `DSH_HOME` / `ANTIGRAVITY_HOME` / `CONTEXTWEAVE_DB`.
@@ -36,7 +38,7 @@ public struct DisplaySessionPage: Sendable {
 }
 
 public actor HandoffService {
-    public static let supportedAgents: [String] = ["codex", "dsh", "cursor", "antigravity"]
+    public static let supportedAgents: [String] = ["codex", "dsh", "cursor", "antigravity", "claude"]
 
     private enum CursorEvent: Sendable {
         case snapshot(CursorCapture.Snapshot)
@@ -58,6 +60,7 @@ public actor HandoffService {
         var available = ["codex", "dsh"]
         if configuration.cursorUserRoot != nil { available.append("cursor") }
         if configuration.antigravityRoot != nil { available.append("antigravity") }
+        if configuration.claudeRoot != nil { available.append("claude") }
         let sources = only.map { available.filter($0.contains) } ?? available
         let report = await withTaskGroup(of: CaptureReport.self, returning: CaptureReport.self) { group in
             for source in sources {
@@ -88,12 +91,41 @@ public actor HandoffService {
         return report
     }
 
+    public func memoryUpdatePreferences() throws -> [SessionID: MemoryUpdatePreference] { try store.memoryUpdatePreferences() }
+    public func setMemoryUpdatePreference(_ id: SessionID, preference: MemoryUpdatePreference) throws {
+        try store.setMemoryUpdatePreference(id, preference: preference)
+    }
+    public func synchronizeMemoryUpdates(agents: Set<String>, model: MemoryModelConfiguration) throws {
+        try store.synchronizeMemoryUpdates(agents: agents, model: model)
+    }
     public func watchMemory(_ id: SessionID, model: MemoryModelConfiguration?) throws { try store.watch(id, model: model) }
+    public func memoryCoverage(_ id: SessionID, minimumNewMessages: Int? = nil) throws -> MemoryCoverage {
+        let settings = SettingsFile.load()
+        return try store.memoryCoverage(id, model: settings.memoryModel, minimumNewMessages: minimumNewMessages ?? settings.memoryAutoUpdateMessageThreshold)
+    }
+
+    /// Bounded automatic catch-up. Never silently jumps past an uncovered gap.
+    public func memoryCatchUp(_ id: SessionID, coverage: MemoryCoverage, limit: Int = 12, from offset: Int? = nil) throws -> MemoryCatchUp {
+        let redactor = try store.summary(id)?.projectID.map { try pathRedactor(project: $0) } ?? PathRedactor()
+        var truncated: [String] = []
+        func safe(_ message: SessionMessage) -> SessionMessage {
+            let content = redactor.redact(message.content)
+            if content.count > 1200 { truncated.append(message.id) }
+            return SessionMessage(id: message.id, role: message.role, content: content.count > 1200 ? String(content.prefix(1200)) + "\n[excerpt truncated; retrieve this message with memory_get_evidence]" : content, timestampMilliseconds: message.timestampMilliseconds)
+        }
+        let start = offset ?? coverage.coveredMessages
+        guard start >= 0, start <= coverage.totalMessages, (1...50).contains(limit) else { throw CaptureError.invalid("Invalid catch-up pagination") }
+        let page = try store.messages(id, offset: start, limit: limit)
+        let next = start + page.count
+        let tail = next < coverage.totalMessages ? try store.latestMessages(id, limit: 4, skip: 0).filter { !Set(page.map(\.id)).contains($0.id) }.map(safe) : []
+        return MemoryCatchUp(offset: start, nextOffset: next < coverage.totalMessages ? next : nil, total: coverage.totalMessages, messages: page.map(safe), latestMessages: tail, truncatedMessageIDs: truncated, instructions: "Read the summary with these newer messages. Coverage counts source positions; only user/assistant text was sent for summarization. Unknown coverage means the entire history is unverified. latestMessages are orientation only, not a substitute for the gap. Continue memory_read_agent with the same project, agent, session_id and offset=nextOffset until complete. Fetch truncatedMessageIDs with memory_get_evidence. Never substitute another session.")
+    }
+
     public func watchedSessions(_ model: MemoryModelConfiguration) throws -> Set<SessionID> {
         Set(try store.watched(model, due: false).map { $0.0 })
     }
-    public func pendingExtractions(_ model: MemoryModelConfiguration) throws -> [(SessionID,String)] {
-        try store.watched(model, due: true)
+    public func pendingExtractions(_ model: MemoryModelConfiguration, minimumNewMessages: Int = AppSettings.defaultMemoryMessageThreshold) throws -> [(SessionID,String)] {
+        try store.pendingMemoryExtractions(model, minimumNewMessages: minimumNewMessages)
     }
     public func finishWatch(_ id: SessionID, revision: String, success: Bool) throws {
         try store.finishWatch(id, revision: revision, success: success)
@@ -102,23 +134,34 @@ public actor HandoffService {
     public func extractSemanticMemory(session id: SessionID, model: MemoryModelConfiguration, apiKey: String?, transport: URLSession? = nil, progress: (@Sendable (Int) async -> Void)? = nil) async throws {
         var offset = 0
         var prior = ""
+        var previousSnapshot: MemorySourceSnapshot?
         while true {
             try Task.checkCancellation()
             let messages = try store.semanticPage(id, offset: offset, limit: 40)
             guard !messages.isEmpty else { break }
             let fields = ["semantic-v2", prior, model.endpoint, model.model] + messages.flatMap { [$0.id, $0.role.rawValue, $0.content] }
             let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
+            if let previousSnapshot, try store.memorySourceSnapshot(id, through: previousSnapshot.lastID) != previousSnapshot {
+                throw CaptureError.invalid("Previously summarized messages changed; retry extraction")
+            }
+            let snapshot = try store.memorySourceSnapshot(id, through: messages[messages.count - 1].id)
             if let cached = try store.cachedCheckpoint(id, offset: offset, digest: digest) {
+                // Restore the checkpoint and its verified boundary even when resuming
+                // an older extraction whose batches predate coverage tracking.
+                try store.saveSemanticMemory(.init(checkpoint: cached, candidates: []), session: id, expected: messages, offset: offset, digest: digest, sourceSnapshot: snapshot)
                 prior = cached
             } else {
                 let result = try await SemanticMemoryClient.extract(configuration: model, apiKey: apiKey, messages: messages, prior: prior, transport: transport)
-                try store.saveSemanticMemory(result, session: id, expected: messages, offset: offset, digest: digest)
+                try Task.checkCancellation()
+                try store.saveSemanticMemory(result, session: id, expected: messages, offset: offset, digest: digest, sourceSnapshot: snapshot)
                 prior = result.checkpoint
             }
+            previousSnapshot = snapshot
             offset += messages.count
             await progress?(offset)
             if messages.count < 40 { break }
         }
+        try Task.checkCancellation()
         try await detectMemoryConflicts(session: id, model: model, apiKey: apiKey, transport: transport)
     }
 
@@ -137,7 +180,9 @@ public actor HandoffService {
         }
         let dshArchivedSessionIDs = source == "dsh" ? Self.archivedDSHSessionIDs(configuration.dshRoot) : []
         var cursors = known
-        for (agent, root) in [("codex", configuration.codexRoot), ("dsh", configuration.dshRoot)] where agent == source {
+        var fileSources = [("codex", configuration.codexRoot), ("dsh", configuration.dshRoot)]
+        if let root = configuration.claudeRoot { fileSources.append(("claude", root)) }
+        for (agent, root) in fileSources where agent == source {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 report.unavailable.append(root.path); continue
@@ -151,6 +196,11 @@ public actor HandoffService {
                 let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                 guard values?.isRegularFile == true, values?.isSymbolicLink != true else { continue }
                 if agent == "codex" && file.lastPathComponent.hasPrefix("rollout-") && file.pathExtension == "jsonl" { files.append(file) }
+                // Only main transcripts directly inside each project directory. Subagents
+                // live in nested subagents/ directories and must not become user sessions.
+                if agent == "claude", file.pathExtension == "jsonl",
+                   file.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL,
+                   UUID(uuidString: file.deletingPathExtension().lastPathComponent) != nil { files.append(file) }
                 if agent == "dsh" && Self.generation(file.lastPathComponent) != nil {
                     // DSH archives keep the session directory; the archive list
                     // lives in storages/workspace.json next to the sessions root.
@@ -476,7 +526,7 @@ public actor HandoffService {
     }
     func capturedOffset(_ path: String) throws -> Int64? { try store.cursors()[path]?.offset }
     public func logProgress(project: String, agent: String, done: String, next: String = "", issues: String = "") throws -> ProgressEntry {
-        guard Self.supportedAgents.contains(agent), !done.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CaptureError.invalid("agent must be codex, dsh, cursor, or antigravity; done must not be empty") }
+        guard Self.supportedAgents.contains(agent), !done.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CaptureError.invalid("agent must be codex, dsh, cursor, antigravity, or claude; done must not be empty") }
         guard done.count + next.count + issues.count <= 24_000 else { throw CaptureError.invalid("Progress entry exceeds 24,000 characters") }
         let entry = ProgressEntry(id: UUID().uuidString, project: try resolveProjectReference(project), agent: agent, done: done, next: next, issues: issues, timestamp: Int64(Date().timeIntervalSince1970 * 1000))
         return try store.log(entry)
@@ -509,7 +559,7 @@ public actor HandoffService {
     }
 
     public func context(project: String, targetAgent: String, budget: Int = 24_000, task: String? = nil, sessionID: SessionID? = nil) throws -> String {
-        guard Self.supportedAgents.contains(targetAgent) else { throw CaptureError.invalid("target_agent must be codex, dsh, cursor, or antigravity") }
+        guard Self.supportedAgents.contains(targetAgent) else { throw CaptureError.invalid("target_agent must be codex, dsh, cursor, antigravity, or claude") }
         let project = try resolveProjectReference(project)
         let sessions = try store.list(project: project, limit: 12)
         if let sessionID, try !session(sessionID, belongsToWorkspace: project) { throw CaptureError.invalid("Session not found in this project") }
@@ -524,6 +574,20 @@ public actor HandoffService {
             guard remaining > 0 else { return }
             if text.count <= remaining { output += text; remaining -= text.count }
             else { output += String(text.prefix(max(0, remaining - 30))) + "\n[section truncated]\n"; remaining = 0 }
+        }
+        if let selected {
+            let coverage = try memoryCoverage(selected.id)
+            let delta = try memoryCatchUp(selected.id, coverage: coverage, limit: 4)
+            add("\n## Summary coverage and catch-up\nSession: \(selected.id.agent) \(selected.id.externalID)\nStatus: \(coverage.status); reason: \(coverage.reason); auto-update: \(coverage.autoUpdate). Covered user/assistant messages: \(coverage.coveredDialogueMessages)/\(coverage.totalDialogueMessages). Source boundary: \(coverage.coveredMessages)/\(coverage.totalMessages). Tools within the boundary were not summarized.\n")
+            add("Catch-up starts at offset \(delta.offset). Read memory_read_agent with project=\(stableID ?? project), agent=\(selected.id.agent), session_id=\(selected.id.externalID), offset=\(delta.offset) for the complete paginated delta. Summary alone is insufficient when coverage is stale or unknown. Excerpts below may be truncated; never skip the gap.\n")
+            // Reserve most of the handoff for memory/progress while ensuring the gap
+            // and current tail cannot be crowded out by an old large checkpoint.
+            let excerptBudget = min(6000, remaining / 2)
+            var excerpts = ""
+            for message in delta.messages + delta.latestMessages {
+                excerpts += "[\(message.role.rawValue), \(message.id)] \(message.content)\n"
+            }
+            add(String(excerpts.prefix(excerptBudget)))
         }
         let conflicts = try store.memoryConflicts()
         let selectedMemories = try selected.map { try store.memories(agent: $0.id.agent, externalID: $0.id.externalID) } ?? []
@@ -556,7 +620,7 @@ public actor HandoffService {
             add("\n## Progress from \(entry.agent) at \(entry.timestamp)\nDone: \(redactor.redact(entry.done))\nNext: \(redactor.redact(entry.next))\nIssues: \(redactor.redact(entry.issues))\n")
         }
         // Prefer the other agent's latest work, then current-agent history.
-        let ordered = (sessionID != nil ? selected.map { [$0] } ?? [] : []) + sessions.filter { $0.id != sessionID && $0.source.id.agent != targetAgent } + sessions.filter { $0.id != sessionID && $0.source.id.agent == targetAgent }
+        let ordered = sessionID != nil ? (selected.map { [$0] } ?? []) : sessions.filter { $0.id != sessionID && $0.source.id.agent != targetAgent } + sessions.filter { $0.id != sessionID && $0.source.id.agent == targetAgent }
         if ordered.isEmpty && progress.isEmpty { add("\nNo captured context for this project. No other project's history was substituted.\n") }
         for summary in ordered.prefix(4) {
             guard remaining > 0 else { continue }
@@ -766,6 +830,7 @@ extension HandoffService {
                 let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
                 if try store.hasConflictCheck(digest) { continue }
                 let conflicts = try await MemoryConflictClient.compare(candidate, with: targets, configuration: model, apiKey: apiKey, transport: transport)
+                try Task.checkCancellation()
                 try store.saveConflicts(conflicts, candidate: candidate, targets: targets, digest: digest)
             }
         }

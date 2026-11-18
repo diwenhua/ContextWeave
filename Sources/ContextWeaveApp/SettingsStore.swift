@@ -67,6 +67,15 @@ enum AppPaths {
         environmentHome("DSH_HOME", fallback: ".dsh")
     }
 
+    static var claudeConfigHome: URL { ClaudePaths().configuration.deletingLastPathComponent() }
+
+    static var claudeCLIAvailable: Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+            + [home.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
+        return paths.contains { FileManager.default.isExecutableFile(atPath: URL(fileURLWithPath: $0).appendingPathComponent("claude").path) }
+    }
+
     static var cursorHome: URL {
         environmentHome("CURSOR_HOME", fallback: ".cursor")
     }
