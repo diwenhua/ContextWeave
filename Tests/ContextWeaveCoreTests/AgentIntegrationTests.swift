@@ -2,6 +2,89 @@ import XCTest
 @testable import ContextWeaveCore
 
 final class AgentIntegrationTests: XCTestCase {
+    func testIndividualConfigurationIsolatedFromOtherAgentConflict() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dsh = root.appendingPathComponent("cordis.patch.yml")
+        let original = "# user contextweave configuration\n"
+        try original.write(to: dsh, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try AgentIntegration.configure(agent: "dsh", executable: "/usr/bin/true", home: root))
+        _ = try AgentIntegration.configure(agent: "codex", executable: "/usr/bin/true", home: root)
+        XCTAssertEqual(AgentIntegration.status(codexHome: root, dshHome: root).first?.state, .connected)
+        XCTAssertEqual(try String(contentsOf: dsh, encoding: .utf8), original)
+        _ = try AgentIntegration.configure(agent: "codex", executable: nil, home: root)
+        XCTAssertEqual(AgentIntegration.status(codexHome: root, dshHome: root).first?.state, .notConfigured)
+        XCTAssertEqual(try String(contentsOf: dsh, encoding: .utf8), original)
+    }
+
+    func testIndividualDSHConfigurationBacksUpAndIsIdempotent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("cordis.patch.yml")
+        let original = "# existing settings\n"
+        try original.write(to: file, atomically: true, encoding: .utf8)
+        _ = try AgentIntegration.configure(agent: "dsh", executable: "/usr/bin/true", home: root)
+        _ = try AgentIntegration.configure(agent: "dsh", executable: "/usr/bin/true", home: root)
+        let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.contains(".bak-") }
+        XCTAssertEqual(backups.count, 1)
+        XCTAssertEqual(try String(contentsOf: XCTUnwrap(backups.first), encoding: .utf8), original)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("config.toml").path))
+        _ = try AgentIntegration.configure(agent: "dsh", executable: nil, home: root)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), original)
+        XCTAssertThrowsError(try AgentIntegration.configure(agent: "unknown", executable: "/usr/bin/true", home: root))
+    }
+
+    func testCodexRecoversLegacyMissingStartMarkerWithoutChangingNeighborTables() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let prefix = "[shell_environment_policy.set]\nEXAMPLE = \"keep\"\n\n"
+        let suffix = "\n[mcp_servers.other]\ncommand = \"other\"\n"
+        let legacy = "[mcp_servers.contextweave]\ncommand = \"/old/contextweave-mcp\"\nargs = []\nstartup_timeout_sec = 60\ntool_timeout_sec = 120\n# END ContextWeave managed MCP\n"
+        let original = prefix + legacy + suffix
+        let file = root.appendingPathComponent("config.toml")
+        try original.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(AgentIntegration.status(codexHome: root, dshHome: root).first?.state, .connected)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), original, "Status must be read-only")
+        _ = try AgentIntegration.configure(agent: "codex", executable: "/usr/bin/true", home: root)
+        let updated = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(updated.hasPrefix(prefix)); XCTAssertTrue(updated.hasSuffix(suffix))
+        XCTAssertTrue(updated.contains("CONTEXTWEAVE_MANAGED"))
+        XCTAssertEqual(try AgentIntegration.merging(updated, snippet: AgentIntegration.codexSnippet(executable: "/usr/bin/true")), updated)
+        XCTAssertFalse(try AgentIntegration.removing(original).contains("contextweave"))
+        XCTAssertTrue(try AgentIntegration.removing(original).contains("EXAMPLE = \"keep\""))
+        XCTAssertTrue(try AgentIntegration.removing(original).hasSuffix(suffix))
+        let backups = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.contains(".bak-") }
+        XCTAssertEqual(try String(contentsOf: XCTUnwrap(backups.first), encoding: .utf8), original)
+    }
+
+    func testCodexDurableOwnershipSurvivesCommentRemovalAndEnvironmentTableRewrite() throws {
+        let snippet = AgentIntegration.codexSnippet(executable: "/usr/bin/true")
+        let nested = snippet.replacingOccurrences(of: "env = { CONTEXTWEAVE_MANAGED = \"1\" }\n", with: "")
+            + "\n[mcp_servers.contextweave.env]\nCONTEXTWEAVE_MANAGED = \"1\"\n"
+        for input in [snippet, nested, nested.replacingOccurrences(of: "\n", with: "\r\n")] {
+            let updated = try AgentIntegration.merging(input, snippet: snippet)
+            XCTAssertTrue(updated.contains("BEGIN ContextWeave"))
+            XCTAssertEqual(try AgentIntegration.removing(input).trimmingCharacters(in: .whitespacesAndNewlines), "")
+        }
+    }
+
+    func testCodexRecoveryRefusesUnknownOrAmbiguousConfiguration() throws {
+        let snippet = AgentIntegration.codexSnippet(executable: "/usr/bin/true")
+        for input in [
+            snippet + "enabled = false\n",
+            snippet + snippet,
+            snippet.replacingOccurrences(of: "CONTEXTWEAVE_MANAGED = \"1\"", with: "CONTEXTWEAVE_MANAGED = \"0\""),
+            snippet.replacingOccurrences(of: "env = { CONTEXTWEAVE_MANAGED = \"1\" }\n", with: ""),
+            snippet + "# END ContextWeave managed MCP\n# END ContextWeave managed MCP\n"
+        ] {
+            XCTAssertThrowsError(try AgentIntegration.merging(input, snippet: snippet))
+            XCTAssertThrowsError(try AgentIntegration.removing(input))
+        }
+    }
+
     func testCursorConfigurationPreservesServersAndRejectsUnmanagedEntry() throws {
         let original = #"{"mcpServers":{"other":{"command":"keep"}},"otherSetting":true}"#
         let configured = try AgentIntegration.cursorConfiguration(original, executable: "/tmp/helper with spaces")

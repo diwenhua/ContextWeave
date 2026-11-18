@@ -35,7 +35,7 @@ public enum AgentIntegration {
     }
     /// Both agents launch the same helper and share its SQLite database.
     public static func codexSnippet(executable: String) -> String {
-        "[mcp_servers.contextweave]\ncommand = \(quoted(executable))\nargs = []\nstartup_timeout_sec = 60\ntool_timeout_sec = 120\n"
+        "[mcp_servers.contextweave]\ncommand = \(quoted(executable))\nargs = []\nenv = { CONTEXTWEAVE_MANAGED = \"1\" }\nstartup_timeout_sec = 60\ntool_timeout_sec = 120\n"
     }
     public static func dshSnippet(executable: String) -> String {
         "- insert:\n    - id: contextweave\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: contextweave\n        transport: stdio\n        command: \(quoted(executable))\n        args: []\n        toolCallTimeoutMs: 120000\n"
@@ -45,6 +45,18 @@ public enum AgentIntegration {
 extension AgentIntegration {
     /// Cursor and Antigravity use JSON rather than the marked TOML/YAML blocks used by Codex and DSH.
     /// The environment marker identifies only registrations created by ContextWeave.
+    public static func claudeStatus(home: URL) -> AgentConnectionStatus {
+        jsonStatus(agent: "claude", label: "Claude Code", url: home.appendingPathComponent(".claude.json"))
+    }
+
+    public static func claudeSnippet(executable: String) -> String {
+        (try? jsonConfiguration("", executable: executable, label: "Claude Code")) ?? ""
+    }
+
+    public static func configureClaude(executable: String?, home: URL) throws -> [String] {
+        try configureJSON(agent: "claude", label: "Claude Code", url: home.appendingPathComponent(".claude.json"), executable: executable)
+    }
+
     public static func cursorConfiguration(_ current: String, executable: String?) throws -> String {
         try jsonConfiguration(current, executable: executable, label: "Cursor")
     }
@@ -96,7 +108,7 @@ extension AgentIntegration {
             }
         }
         if let executable {
-            servers["contextweave"] = ["command": executable, "args": [], "env": ["CONTEXTWEAVE_MANAGED": "1"]]
+            servers["contextweave"] = ["type": "stdio", "command": executable, "args": [], "env": ["CONTEXTWEAVE_MANAGED": "1"]]
         } else { servers.removeValue(forKey: "contextweave") }
         root["mcpServers"] = servers
         return String(decoding: try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]), as: UTF8.self) + "\n"
@@ -143,9 +155,63 @@ extension AgentIntegration {
         return messages
     }
 
+    /// Codex may rewrite TOML and drop comments. Recover only our exact generated
+    /// schema, with a durable env marker (or the legacy orphaned end marker).
+    /// Unknown fields and ambiguous sections remain untouched for manual review.
+    private static func recoveringCodexMarkers(_ current: String) -> String {
+        let normalized = current.replacingOccurrences(of: "\r\n", with: "\n")
+        guard !normalized.contains(beginMarker) else { return current }
+        var lines = normalized.components(separatedBy: "\n")
+        let header = "[mcp_servers.contextweave]"
+        let headers = lines.indices.filter { lines[$0].trimmingCharacters(in: .whitespaces) == header }
+        guard headers.count == 1, let start = headers.first else { return current }
+        var end = start + 1
+        while end < lines.count {
+            let line = lines[end].trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line != "[mcp_servers.contextweave.env]" { break }
+            end += 1
+        }
+        var fields: [String: String] = [:]
+        var inEnvironment = false
+        var endMarkers = 0
+        for raw in lines[(start + 1)..<end] {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if line == endMarker { endMarkers += 1; continue }
+            if line == "[mcp_servers.contextweave.env]", !inEnvironment {
+                inEnvironment = true
+                continue
+            }
+            guard let separator = line.firstIndex(of: "=") else { return current }
+            let key = (inEnvironment ? "env." : "") + line[..<separator].trimmingCharacters(in: .whitespaces)
+            guard fields[key] == nil else { return current }
+            fields[key] = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+        }
+        guard let command = fields.removeValue(forKey: "command"),
+              let path = try? JSONDecoder().decode(String.self, from: Data(command.utf8)),
+              path.hasPrefix("/"),
+              fields.removeValue(forKey: "args") == "[]",
+              fields.removeValue(forKey: "startup_timeout_sec") == "60",
+              fields.removeValue(forKey: "tool_timeout_sec") == "120" else { return current }
+        let inlineEnv = fields.removeValue(forKey: "env")
+        let nestedEnv = fields.removeValue(forKey: "env.CONTEXTWEAVE_MANAGED")
+        let owned = (inlineEnv?.filter { !$0.isWhitespace } == "{CONTEXTWEAVE_MANAGED=\"1\"}" && nestedEnv == nil)
+            || (nestedEnv == "\"1\"" && inlineEnv == nil)
+        let legacy = inlineEnv == nil && nestedEnv == nil && endMarkers == 1
+            && URL(fileURLWithPath: path).lastPathComponent == "contextweave-mcp"
+        guard fields.isEmpty, (owned || legacy), endMarkers <= 1,
+              normalized.components(separatedBy: endMarker).count - 1 == endMarkers else { return current }
+        // Keep trailing blank lines and the following table outside the managed range.
+        while end > start + 1 && lines[end - 1].trimmingCharacters(in: .whitespaces).isEmpty { end -= 1 }
+        let body = lines[start..<end].filter { $0.trimmingCharacters(in: .whitespaces) != endMarker }
+        lines.replaceSubrange(start..<end, with: [String(beginMarker.dropLast())] + body + [endMarker])
+        let repaired = lines.joined(separator: "\n")
+        return current.contains("\r\n") ? repaired.replacingOccurrences(of: "\n", with: "\r\n") : repaired
+    }
+
     /// Replaces only our marked block; refuses pre-existing unowned registrations.
     public static func merging(_ current: String, snippet: String) throws -> String {
-        let normalized = current.replacingOccurrences(of: "\r\n", with: "\n")
+        let normalized = recoveringCodexMarkers(current).replacingOccurrences(of: "\r\n", with: "\n")
         let block = beginMarker + snippet + endMarker
         if normalized.contains(beginMarker) || normalized.contains(endMarker) {
             guard normalized.components(separatedBy: beginMarker).count == 2,
@@ -162,7 +228,7 @@ extension AgentIntegration {
 
     /// Removes only our marked block. Unowned registrations are left untouched.
     public static func removing(_ current: String) throws -> String {
-        let normalized = current.replacingOccurrences(of: "\r\n", with: "\n")
+        let normalized = recoveringCodexMarkers(current).replacingOccurrences(of: "\r\n", with: "\n")
         let begins = normalized.components(separatedBy: beginMarker).count - 1
         let ends = normalized.components(separatedBy: endMarker).count - 1
         if begins == 1 && ends == 1 {
@@ -190,6 +256,34 @@ extension AgentIntegration {
             connectionStatus(agent: "codex", url: codexHome.appendingPathComponent("config.toml")),
             connectionStatus(agent: "dsh", url: dshHome.appendingPathComponent("cordis.patch.yml"))
         ]
+    }
+
+    /// Configures one agent without reading or modifying any other agent's files.
+    public static func configure(agent: String, executable: String?, home: URL) throws -> [String] {
+        switch agent {
+        case "claude": return try configureClaude(executable: executable, home: home)
+        case "cursor": return try configureCursor(executable: executable, home: home)
+        case "antigravity": return try configureAntigravity(executable: executable, home: home)
+        case "codex", "dsh": break
+        default: throw CaptureError.invalid("Unsupported agent: \(agent)")
+        }
+        if let executable, (!executable.hasPrefix("/") || !FileManager.default.isExecutableFile(atPath: executable)) {
+            throw CaptureError.invalid("MCP helper must be an existing absolute executable path")
+        }
+        let url = home.appendingPathComponent(agent == "codex" ? "config.toml" : "cordis.patch.yml")
+        let old = FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
+        let new: String
+        if let executable {
+            new = try merging(old, snippet: agent == "codex" ? codexSnippet(executable: executable) : dshSnippet(executable: executable))
+        } else {
+            new = try removing(old)
+        }
+        guard old != new else { return ["Unchanged: \(url.path)"] }
+        var messages: [String] = []
+        if let backup = try backup(url) { messages.append("Backup: \(backup)") }
+        try write(new, to: url)
+        messages.append("\(executable == nil ? "Removed" : "Configured"): \(url.path)")
+        return messages
     }
 
     public static func connect(executable: String, codexHome: URL, dshHome: URL) throws -> [String] {
@@ -240,7 +334,7 @@ extension AgentIntegration {
                 detail: exists ? "The configuration file exists but could not be read." : nil
             )
         }
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let normalized = (agent == "codex" ? recoveringCodexMarkers(text) : text).replacingOccurrences(of: "\r\n", with: "\n")
         if let block = managedBlock(in: normalized) {
             return AgentConnectionStatus(agent: agent, configPath: url.path, state: .connected, helperPath: commandPath(in: block), detail: nil)
         }

@@ -34,6 +34,11 @@ private enum AgentArtwork {
 
     static func image(for agent: String) -> NSImage? {
         if let cached = cache[agent] { return cached }
+        if agent == "claude", let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") {
+            let image = NSWorkspace.shared.icon(forFile: app.path)
+            cache[agent] = image
+            return image
+        }
         let path: String
         switch agent {
         case "dsh": path = "/Applications/DeepSeek Harness.app/Contents/Resources/icon.png"

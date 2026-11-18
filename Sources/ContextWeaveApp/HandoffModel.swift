@@ -16,6 +16,9 @@ final class HandoffModel: ObservableObject {
     @Published private(set) var extractingMemory: SessionID?
     @Published private(set) var processedMessages = 0
     @Published var watchedSessions: Set<SessionID> = []
+    @Published var memoryUpdatePreferences: [SessionID: MemoryUpdatePreference] = [:]
+    private var automaticRestartRequested = false
+    private var pendingMemoryPreferenceChanges = 0
     private var automaticWorker: Task<Void,Never>?
     @Published var memoryExtractionMessage: String?
     @Published var projects: [String] = []
@@ -40,6 +43,8 @@ final class HandoffModel: ObservableObject {
     private var queuedSources: Set<String> = []
     private var busySources: Set<String> = []
     private var appliedModel: MemoryModelConfiguration
+    private var appliedMemoryAgents: Set<String>
+    private var appliedMemoryThreshold: Int
     private var appliedWatchAutomatically = true
     private var appliedScanIntervalSeconds = AppSettings.defaultScanIntervalSeconds
     private var subscription: AnyCancellable?
@@ -48,6 +53,8 @@ final class HandoffModel: ObservableObject {
 
     init(settings: SettingsStore) {
         appliedModel = settings.settings.memoryModel
+        appliedMemoryAgents = settings.settings.memoryAutoUpdateAgents
+        appliedMemoryThreshold = settings.settings.memoryAutoUpdateMessageThreshold
         settingsStore = settings
         configuration = settings.settings.captureConfiguration()
         appliedWatchAutomatically = settings.settings.watchAutomatically
@@ -80,17 +87,16 @@ final class HandoffModel: ObservableObject {
     /// Applies path/cadence changes made in Settings.
     func apply(_ newSettings: AppSettings) {
         let newConfiguration = newSettings.captureConfiguration()
-        if appliedModel != newSettings.memoryModel || newConfiguration != configuration {
+        let memoryPolicyChanged = appliedModel != newSettings.memoryModel
+            || appliedMemoryAgents != newSettings.memoryAutoUpdateAgents
+            || appliedMemoryThreshold != newSettings.memoryAutoUpdateMessageThreshold
+        if memoryPolicyChanged || newConfiguration != configuration {
             automaticWorker?.cancel()
             appliedModel = newSettings.memoryModel
+            appliedMemoryAgents = newSettings.memoryAutoUpdateAgents
+            appliedMemoryThreshold = newSettings.memoryAutoUpdateMessageThreshold
             watchedSessions = []
-            if let service, newConfiguration == configuration {
-                let model = appliedModel
-                Task {
-                    let watches = try? await service.watchedSessions(model)
-                    if self.service === service, appliedModel == model { watchedSessions = watches ?? [] }
-                }
-            }
+            if let service, newConfiguration == configuration { startAutomaticWorker(service) }
         }
         let cadenceChanged = appliedWatchAutomatically != newSettings.watchAutomatically
             || appliedScanIntervalSeconds != newSettings.scanIntervalSeconds
@@ -107,6 +113,7 @@ final class HandoffModel: ObservableObject {
         sessions = []
         archivedSessions = []
         memories = []
+        memoryUpdatePreferences = [:]
         projects = []
         workspaces = []
         report = CaptureReport()
@@ -210,30 +217,56 @@ final class HandoffModel: ObservableObject {
         }
     }
 
-    func watch(_ id: SessionID, enabled: Bool) {
+    func effectiveMemoryUpdate(_ id: SessionID) -> Bool {
+        (memoryUpdatePreferences[id] ?? .inherit).isEnabled(agentDefault: settingsStore.settings.memoryAutoUpdateAgents.contains(id.agent))
+    }
+
+    func setMemoryUpdate(_ id: SessionID, preference: MemoryUpdatePreference) {
         guard let service else { return }
-        let model = settingsStore.settings.memoryModel
+        pendingMemoryPreferenceChanges += 1
+        automaticWorker?.cancel()
         Task {
+            defer {
+                pendingMemoryPreferenceChanges -= 1
+                if let current = self.service { startAutomaticWorker(current) }
+            }
             do {
-                try await service.watchMemory(id, model: enabled ? model : nil)
-                watchedSessions = try await service.watchedSessions(model)
-                if !enabled, extractingMemory == id { automaticWorker?.cancel() }
-                if enabled { startAutomaticWorker(service) }
+                try await service.setMemoryUpdatePreference(id, preference: preference)
+                guard self.service === service else { return }
+                memoryUpdatePreferences = try await service.memoryUpdatePreferences()
             } catch { memoryExtractionMessage = error.localizedDescription }
         }
     }
 
     private func startAutomaticWorker(_ service: HandoffService) {
-        guard automaticWorker == nil else { return }
+        // A scan finishing during an override write must not restart old policy.
+        guard pendingMemoryPreferenceChanges == 0 else { return }
+        guard automaticWorker == nil else { automaticRestartRequested = true; return }
         let model = settingsStore.settings.memoryModel
+        let agents = settingsStore.settings.memoryAutoUpdateAgents
+        let threshold = settingsStore.settings.memoryAutoUpdateMessageThreshold
         automaticWorker = Task {
-            defer { automaticWorker = nil }
+            defer {
+                automaticWorker = nil
+                if automaticRestartRequested {
+                    automaticRestartRequested = false
+                    if let current = self.service { startAutomaticWorker(current) }
+                }
+            }
             do {
+                try Task.checkCancellation()
+                try await service.synchronizeMemoryUpdates(agents: agents, model: model)
+                try Task.checkCancellation()
+                guard self.service === service else { return }
+                memoryUpdatePreferences = try await service.memoryUpdatePreferences()
                 watchedSessions = try await service.watchedSessions(model)
-                for (id, revision) in try await service.pendingExtractions(model) {
+                revision += 1
+                for (id, revision) in try await service.pendingExtractions(model, minimumNewMessages: threshold) {
                     guard self.service === service, model == settingsStore.settings.memoryModel,
+                          agents == settingsStore.settings.memoryAutoUpdateAgents,
+                          threshold == settingsStore.settings.memoryAutoUpdateMessageThreshold,
                           !Task.isCancelled, extractingMemory == nil else { break }
-                    guard watchedSessions.contains(id) else { continue }
+                    guard effectiveMemoryUpdate(id), watchedSessions.contains(id) else { continue }
                     extractingMemory = id
                     processedMessages = 0
                     memoryExtractionMessage = nil
@@ -241,17 +274,23 @@ final class HandoffModel: ObservableObject {
                     do {
                         let key = try MemoryModelKeychain.load(endpoint: model.validatedEndpoint())
                         try await extract(service, id: id, model: model, key: key)
+                        try Task.checkCancellation()
                         try await service.finishWatch(id, revision: revision, success: true)
                         memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .module)
                         await publishScanProgress(service)
                     } catch {
+                        if Task.isCancelled { break }
                         try await service.finishWatch(id, revision: revision, success: false)
                         memoryExtractionMessage = error.localizedDescription
                     }
                 }
-            } catch { memoryExtractionMessage = error.localizedDescription }
+            } catch {
+                if !Task.isCancelled { memoryExtractionMessage = error.localizedDescription }
+            }
         }
     }
+
+    func memoryCoverage(_ id: SessionID) async throws -> MemoryCoverage? { try await service?.memoryCoverage(id, minimumNewMessages: settingsStore.settings.memoryAutoUpdateMessageThreshold) }
 
     func evidence(for memory: ProjectMemory) async throws -> String {
         guard let service, let message = memory.sourceMessageID else { throw CaptureError.invalid("Source unavailable") }
@@ -272,7 +311,10 @@ final class HandoffModel: ObservableObject {
         processedMessages = 0
         memoryExtractionMessage = nil
         Task {
-            defer { extractingMemory = nil }
+            defer {
+                extractingMemory = nil
+                if self.service === service { startAutomaticWorker(service) }
+            }
             do {
                 let url = try model.validatedEndpoint()
                 let key = try MemoryModelKeychain.load(endpoint: url)
@@ -294,6 +336,7 @@ final class HandoffModel: ObservableObject {
             let loadedArchived = try await source.displayArchivedSessions()
             let loadedMemories = try await source.displayMemories()
             let loadedConflicts = try await source.memoryConflicts()
+            let loadedPreferences = try await source.memoryUpdatePreferences()
             let loadedProjects = try await source.projects()
             let loadedWorkspaces = try await source.workspaceBindings()
             let loadedStats = try await source.stats()
@@ -306,6 +349,7 @@ final class HandoffModel: ObservableObject {
             archivedSessions = loadedArchived
             memories = loadedMemories
             memoryConflicts = loadedConflicts
+            memoryUpdatePreferences = loadedPreferences
             error = nil
             revision += 1
         } catch {
@@ -371,6 +415,7 @@ final class HandoffModel: ObservableObject {
         case "dsh": "DeepSeek Harness"
         case "cursor": "Cursor"
         case "antigravity": "Antigravity"
+        case "claude": "Claude Code"
         default: "Codex"
         }
     }
@@ -399,6 +444,7 @@ final class HandoffModel: ObservableObject {
     private var captureSources: Set<String> {
         var sources: Set<String> = ["codex", "dsh"]
         if configuration.cursorUserRoot != nil { sources.insert("cursor") }
+        if configuration.claudeRoot != nil { sources.insert("claude") }
         if configuration.antigravityRoot != nil { sources.insert("antigravity") }
         return sources
     }
@@ -414,6 +460,7 @@ final class HandoffModel: ObservableObject {
                 paths.append(file.path)
             }
         }
+        if let claude = configuration.claudeRoot { paths.append(claude.path) }
         if let cursor = configuration.cursorUserRoot {
             paths.append(cursor.appendingPathComponent("globalStorage").path)
         }
@@ -429,6 +476,7 @@ final class HandoffModel: ObservableObject {
     private func sources(for changed: [String]) -> Set<String> {
         let codexHome = configuration.codexRoot.deletingLastPathComponent().standardizedFileURL.path
         let dshHome = configuration.dshRoot.deletingLastPathComponent().standardizedFileURL.path
+        let claudeRoot = configuration.claudeRoot?.standardizedFileURL.path
         let cursorHome = configuration.cursorUserRoot?.standardizedFileURL.path
         let antigravityHome = configuration.antigravityRoot?.standardizedFileURL.path
         let antigravityProjects = configuration.antigravityRoot?.deletingLastPathComponent().appendingPathComponent("config/projects").standardizedFileURL.path
@@ -437,6 +485,7 @@ final class HandoffModel: ObservableObject {
             let path = URL(fileURLWithPath: raw).standardizedFileURL.path
             if path.hasPrefix(codexHome) { matched.insert("codex") }
             if path.hasPrefix(dshHome) { matched.insert("dsh") }
+            if let claudeRoot, path == claudeRoot || path.hasPrefix(claudeRoot + "/") { matched.insert("claude") }
             if let cursorHome, path.hasPrefix(cursorHome) { matched.insert("cursor") }
             if let antigravityHome, path.hasPrefix(antigravityHome) { matched.insert("antigravity") }
             if let antigravityProjects, path.hasPrefix(antigravityProjects) { matched.insert("antigravity") }
@@ -474,7 +523,7 @@ final class HandoffModel: ObservableObject {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 guard let self, !Task.isCancelled else { return }
                 let live = self.sessions.contains { $0.runState == .running || $0.runState == .awaitingApproval }
-                if live { await self.refresh(sources: ["codex", "dsh", "antigravity"]) }
+                if live { await self.refresh(sources: ["codex", "dsh", "antigravity", "claude"]) }
             }
         }
     }

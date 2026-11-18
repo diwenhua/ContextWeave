@@ -103,6 +103,7 @@ public enum SessionParser {
         var cwd = state.cwd
         var usesOrdinals = state.usesOrdinals
         var messages: [SessionMessage] = []
+        var agentTitle: String?
         var state = state
         var pendingApprovals = state.runState == .awaitingApproval ? 1 : 0
         guard !state.rejected else { return (nil, state) }
@@ -132,6 +133,8 @@ public enum SessionParser {
             let timestamp: Int64?
             if agent == "codex" {
                 timestamp = type == "response_item" ? parseISO(event["timestamp"]) : nil
+            } else if agent == "claude" {
+                timestamp = parseISO(event["timestamp"])
             } else if agent == "antigravity" {
                 timestamp = parseISO(event["created_at"])
             } else {
@@ -139,7 +142,7 @@ public enum SessionParser {
             }
             func append(_ role: SessionMessage.Role, _ content: String, suffix: String = "") {
                 guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                messages.append(SessionMessage(id: "\(eventID)\(suffix)", role: role, content: content, timestampMilliseconds: timestamp))
+                messages.append(SessionMessage(id: "\(agent == "claude" ? (event["uuid"] as? String ?? String(eventID)) : String(eventID))\(suffix)", role: role, content: content, timestampMilliseconds: timestamp, sourceOrdinal: agent == "claude" ? index * 1000 + (Int(suffix.dropFirst()) ?? 0) : nil))
             }
             if agent == "codex" {
                 if type == "event_msg" {
@@ -172,6 +175,32 @@ public enum SessionParser {
                     case "function_call_output", "custom_tool_call_output":
                         append(.tool, "Result [\(payload["call_id"] as? String ?? "")]:\n" + stringify(payload["output"]))
                     default: break
+                    }
+                }
+            } else if agent == "claude" {
+                guard event["isSidechain"] as? Bool != true else { continue }
+                if let id = event["sessionId"] as? String {
+                    if let externalID, externalID != id { throw CaptureError.invalid("Mixed Claude session identities") }
+                    externalID = id
+                }
+                if cwd == nil { cwd = event["cwd"] as? String }
+                if type == "custom-title" { agentTitle = event["customTitle"] as? String }
+                if type == "ai-title", agentTitle == nil { agentTitle = event["aiTitle"] as? String }
+                if (type == "user" || type == "assistant"), let message = event["message"] as? [String: Any] {
+                    let role: SessionMessage.Role = type == "user" ? .user : .assistant
+                    if let content = message["content"] as? String { append(role, content) }
+                    else {
+                        for (blockIndex, block) in (message["content"] as? [[String: Any]] ?? []).enumerated() {
+                            let suffix = ":\(blockIndex)"
+                            switch block["type"] as? String {
+                            case "text": append(role, block["text"] as? String ?? "", suffix: suffix)
+                            case "tool_use":
+                                append(.tool, "Call \(block["name"] as? String ?? "tool") [\(block["id"] as? String ?? "")]:\n" + stringify(block["input"]), suffix: suffix)
+                            case "tool_result":
+                                append(.tool, "Result [\(block["tool_use_id"] as? String ?? "")]:\n" + textOf(block["content"]), suffix: suffix)
+                            default: break
+                            }
+                        }
                     }
                 }
             } else if agent == "dsh" {
@@ -240,13 +269,14 @@ public enum SessionParser {
         updated.externalID = externalID
         updated.cwd = try cwd.map(ProjectIdentity.canonicalPath) ?? state.cwd
         updated.usesOrdinals = usesOrdinals
-        guard let externalID, !messages.isEmpty else { return (nil, updated) }
+        guard let externalID, !messages.isEmpty || (agent == "claude" && agentTitle != nil) else { return (nil, updated) }
         let session = Session(
             source: SessionSource(id: try SessionID(agent: agent, externalID: externalID), sourcePath: path),
             projectID: updated.cwd,
             messages: messages,
             messageIDsAreOrdinals: usesOrdinals,
-            runState: updated.runState
+            runState: updated.runState,
+            agentTitle: agentTitle
         )
         return (session, updated)
     }

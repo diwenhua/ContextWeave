@@ -35,6 +35,18 @@ private actor RequestAdmission {
 struct ContextWeaveMCP {
     static func main() async {
         do {
+            if CommandLine.arguments.contains("--connect-claude") {
+                let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath().path
+                for message in try AgentIntegration.configureClaude(executable: executable, home: ClaudePaths().configuration.deletingLastPathComponent()) { print(message) }
+                return
+            }
+            if CommandLine.arguments.contains("--connect-codex") {
+                let home = ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
+                    ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+                let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath().path
+                for message in try AgentIntegration.configure(agent: "codex", executable: executable, home: home) { print(message) }
+                return
+            }
             if CommandLine.arguments.contains("--connect-cursor") {
                 let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cursor")
                 let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath().path

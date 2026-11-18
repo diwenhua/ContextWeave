@@ -273,6 +273,7 @@ struct ContentView: View {
                 archivedChip("dsh", label: "DeepSeek Harness")
                 archivedChip("cursor", label: "Cursor")
                 archivedChip("antigravity", label: "Antigravity")
+                archivedChip("claude", label: "Claude Code")
             }
         }
         .padding(.horizontal, 24)
@@ -603,7 +604,7 @@ struct ContentView: View {
 }
 
 private struct EmptyHandoff: View {
-    private let agents = ["codex", "dsh", "cursor", "antigravity"]
+    private let agents = ["codex", "dsh", "cursor", "antigravity", "claude"]
 
     var body: some View {
         VStack(spacing: 28) {
@@ -967,6 +968,10 @@ private struct ProjectAgentRail: View {
                 selected: agentFilter == "antigravity",
                 help: "Antigravity"
             ) { agentFilter = "antigravity" }
+            AgentRailButton(
+                agent: "claude", name: "Claude Code", compact: !showsNames,
+                tint: Weave.claude, selected: agentFilter == "claude", help: "Claude Code"
+            ) { agentFilter = "claude" }
             Spacer(minLength: 0)
             Rectangle()
                 .fill(Weave.line)
