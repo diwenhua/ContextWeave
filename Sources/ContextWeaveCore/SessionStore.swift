@@ -1,5 +1,6 @@
 import Foundation
 import CSQLite
+import CryptoKit
 
 public struct SessionSummary: Identifiable, Codable, Sendable {
     public var id: SessionID { source.id }
@@ -11,6 +12,18 @@ public struct SessionSummary: Identifiable, Codable, Sendable {
     public let messageCount: Int
     public let lastActivity: Int64
     public let runState: SessionRunState?
+    public let archivedAt: Int64?
+
+    public init(source: SessionSource, projectID: String?, stableProjectID: String?, title: String, messageCount: Int, lastActivity: Int64, runState: SessionRunState?, archivedAt: Int64? = nil) {
+        self.source = source
+        self.projectID = projectID
+        self.stableProjectID = stableProjectID
+        self.title = title
+        self.messageCount = messageCount
+        self.lastActivity = lastActivity
+        self.runState = runState
+        self.archivedAt = archivedAt
+    }
 }
 
 public struct ProgressEntry: Codable, Sendable {
@@ -75,7 +88,7 @@ final class SessionStore {
         do {
             sqlite3_busy_timeout(db, 10_000)
             let version = try userVersion()
-            guard version <= 6 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 13 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             try run("PRAGMA journal_mode=WAL")
             try run("PRAGMA foreign_keys=ON")
             try migrate()
@@ -139,6 +152,7 @@ final class SessionStore {
                         }
                     }
                     try insertMessages(session, path: path)
+                    try run("UPDATE semantic_watch SET dirty=1,revision=revision+1 WHERE agent=? AND external_id=?", [agent, externalID])
                     let total = try count("SELECT COUNT(*) FROM messages WHERE agent=? AND external_id=?", [agent, externalID])
                     let activity = Int64(try text("SELECT MAX(timestamp) FROM messages WHERE agent=? AND external_id=?", [agent, externalID]) ?? "") ?? 0
                     let storedTitle = try text("SELECT title FROM sessions WHERE agent=? AND external_id=?", [agent, externalID])
@@ -148,7 +162,7 @@ final class SessionStore {
                     let title = Self.cleanTitle(session.agentTitle)
                         ?? (storedTitle?.isEmpty == false ? storedTitle : nil)
                         ?? Self.displayTitle(candidates, fallback: externalID)
-                    try run("INSERT INTO sessions(agent, external_id, project, title, message_count, activity, source_path, ordinals, stable_project_id, run_state) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(agent, external_id) DO UPDATE SET project=excluded.project, title=excluded.title, message_count=excluded.message_count, activity=excluded.activity, source_path=excluded.source_path, ordinals=excluded.ordinals, stable_project_id=excluded.stable_project_id, run_state=excluded.run_state", [agent, externalID, assignment.path, title, String(total), String(activity), path, cursor.ordinals ? "1" : "0", assignment.stableID, session.runState?.rawValue])
+                    try run("INSERT INTO sessions(agent, external_id, project, title, message_count, activity, source_path, ordinals, stable_project_id, run_state, archived_at) VALUES(?,?,?,?,?,?,?,?,?,?,NULL) ON CONFLICT(agent, external_id) DO UPDATE SET project=excluded.project, title=excluded.title, message_count=excluded.message_count, activity=excluded.activity, source_path=excluded.source_path, ordinals=excluded.ordinals, stable_project_id=excluded.stable_project_id, run_state=excluded.run_state, archived_at=NULL", [agent, externalID, assignment.path, title, String(total), String(activity), path, cursor.ordinals ? "1" : "0", assignment.stableID, session.runState?.rawValue])
                 } else if let runState = cursor.runState, let agent, let externalID {
                     try run("UPDATE sessions SET run_state=? WHERE agent=? AND external_id=?", [runState, agent, externalID])
                 }
@@ -174,6 +188,9 @@ final class SessionStore {
                 if let title = Self.cleanTitle(item.title) {
                     try run("UPDATE sessions SET title=? WHERE agent=? AND external_id=?", [title, item.agent, item.externalID])
                 }
+                if let runState = item.runState {
+                    try run("UPDATE sessions SET run_state=? WHERE agent=? AND external_id=?", [runState.rawValue, item.agent, item.externalID])
+                }
                 guard let canonical = pending["\(item.agent)\n\(item.externalID)"] else { continue }
                 try relocate(agent: item.agent, externalID: item.externalID, canonical: canonical, pending: pending)
             }
@@ -197,6 +214,7 @@ final class SessionStore {
         if storedPath == canonical { return }
         if let existing = try projectID(forWorkspace: canonical) {
             try run("UPDATE sessions SET project=?, stable_project_id=? WHERE agent=? AND external_id=?", [canonical, existing, agent, externalID])
+            try run("UPDATE memories SET stable_project_id=? WHERE agent=? AND external_id=?", [existing, agent, externalID])
             return
         }
         if let storedPath, let storedStable, !FileManager.default.fileExists(atPath: storedPath) {
@@ -212,6 +230,7 @@ final class SessionStore {
         }
         let created = try ensureWorkspace(path: canonical)
         try run("UPDATE sessions SET project=?, stable_project_id=? WHERE agent=? AND external_id=?", [canonical, created.projectID, agent, externalID])
+        try run("UPDATE memories SET stable_project_id=? WHERE agent=? AND external_id=?", [created.projectID, agent, externalID])
     }
 
     private func retargetWorkspace(from old: String, to new: String, projectID: String) throws {
@@ -231,7 +250,7 @@ final class SessionStore {
         return Session(source: summary.source, projectID: summary.projectID, messages: try messages(id, offset: 0, limit: nil), messageIDsAreOrdinals: ordinals, stableProjectID: summary.stableProjectID, runState: summary.runState)
     }
     func summary(_ id: SessionID) throws -> SessionSummary? {
-        try rows("SELECT agent, external_id, project, title, message_count, activity, source_path, stable_project_id, run_state FROM sessions WHERE agent=? AND external_id=?", [id.agent, id.externalID]).first.map(summary(from:))
+        try rows("SELECT agent, external_id, project, title, message_count, activity, source_path, stable_project_id, run_state, archived_at FROM sessions WHERE agent=? AND external_id=?", [id.agent, id.externalID]).first.map(summary(from:))
     }
     func messages(_ id: SessionID, offset: Int, limit: Int?) throws -> [SessionMessage] {
         try rows("SELECT message_id, role, content, timestamp FROM messages WHERE agent=? AND external_id=? ORDER BY ordinal, message_id LIMIT ? OFFSET ?", [id.agent, id.externalID, String(limit ?? -1), String(offset)]).map(Self.message(from:))
@@ -239,10 +258,159 @@ final class SessionStore {
     func latestMessages(_ id: SessionID, limit: Int, skip: Int) throws -> [SessionMessage] {
         try rows("SELECT message_id, role, content, timestamp FROM messages WHERE agent=? AND external_id=? ORDER BY ordinal DESC, message_id DESC LIMIT ? OFFSET ?", [id.agent, id.externalID, String(limit), String(skip)]).reversed().map(Self.message(from:))
     }
+    func memories(project: String, limit: Int = 24) throws -> [ProjectMemory] {
+        try rows("SELECT m.kind, m.agent, m.external_id, m.content, m.updated_at, m.stable_project_id, m.id, m.status, m.source_message_id, m.scope FROM memories m LEFT JOIN sessions s ON s.agent=m.agent AND s.external_id=m.external_id WHERE m.status='confirmed' AND (m.scope='global' OR (m.scope='project' AND m.stable_project_id=(SELECT project_id FROM workspaces WHERE device_id=? AND path=?))) ORDER BY CASE m.scope WHEN 'global' THEN 0 ELSE 1 END, m.updated_at DESC LIMIT ?", [deviceID, project, String(limit)]).compactMap(Self.memory(from:))
+    }
+
+    func memories(agent: String, externalID: String) throws -> [ProjectMemory] {
+        try rows("SELECT kind, agent, external_id, content, updated_at, stable_project_id, id, status, source_message_id, scope FROM memories WHERE agent=? AND external_id=? ORDER BY CASE kind WHEN 'summary' THEN 0 WHEN 'decision' THEN 1 ELSE 2 END, id", [agent, externalID]).compactMap(Self.memory(from:))
+    }
+
+    func allMemories(limit: Int = 1000) throws -> [ProjectMemory] {
+        try rows("SELECT m.kind, m.agent, m.external_id, m.content, m.updated_at, m.stable_project_id, m.id, m.status, m.source_message_id, m.scope FROM memories m JOIN sessions s ON s.agent=m.agent AND s.external_id=m.external_id WHERE (m.scope != 'session' OR s.archived_at IS NULL) ORDER BY m.updated_at DESC, m.stable_project_id, m.agent, m.external_id, CASE m.kind WHEN 'summary' THEN 0 WHEN 'decision' THEN 1 ELSE 2 END LIMIT ?", [String(limit)]).compactMap(Self.memory(from:))
+    }
+
+    func setMemoryStatus(id: String, status: String) throws {
+        guard ["confirmed", "rejected", "candidate"].contains(status) else { throw CaptureError.invalid("Invalid memory status") }
+        try run("BEGIN IMMEDIATE")
+        do {
+            if status == "confirmed", try memoryConflicts().contains(where: { $0.candidateID == id }) {
+                throw CaptureError.invalid("Resolve this memory's conflicts before confirming it")
+            }
+            try run("UPDATE memories SET status=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [status, id])
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
+
+    func replaceMemory(_ old: String, with new: String) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            let valid = try count("""
+                SELECT count(*) FROM memories o JOIN memories n ON n.id=?
+                WHERE o.id=? AND o.status='confirmed' AND n.status='candidate'
+                AND o.kind=n.kind
+                AND (o.scope='global' OR o.stable_project_id=n.stable_project_id)
+                AND (o.scope!='session' OR (n.scope='session' AND o.agent=n.agent AND o.external_id=n.external_id))
+                """, [new, old])
+            guard valid == 1 else { throw CaptureError.invalid("Memory pair changed or has incompatible scopes") }
+            guard try !memoryConflicts().contains(where: { $0.candidateID == new && $0.confirmedID != old }) else {
+                throw CaptureError.invalid("Review the other conflicts before replacing this memory")
+            }
+            try run("UPDATE memories SET status='superseded' WHERE id=?", [old])
+            try run("UPDATE memories SET status='confirmed',scope=(SELECT scope FROM memories WHERE id=?) WHERE id=?", [old,new])
+            try run("INSERT INTO memory_replacements VALUES(?,?,unixepoch())", [old,new])
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
+
+    func evidence(_ id: SessionID, message: String) throws -> SessionMessage? {
+        try rows("SELECT message_id,role,content,timestamp FROM messages WHERE agent=? AND external_id=? AND message_id=?", [id.agent,id.externalID,message]).first.map(Self.message(from:))
+    }
+
+    func setMemoryScope(id: String, scope: String) throws {
+        guard ["global", "project", "session"].contains(scope) else { throw CaptureError.invalid("Invalid memory scope") }
+        try run("UPDATE memories SET scope=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [scope, id])
+    }
+
+    func watch(_ id: SessionID, model: MemoryModelConfiguration?) throws {
+        if let model {
+            try run("INSERT OR REPLACE INTO semantic_watch(agent,external_id,endpoint,model) VALUES(?,?,?,?)", [id.agent,id.externalID,model.endpoint,model.model])
+        } else {
+            try run("DELETE FROM semantic_watch WHERE agent=? AND external_id=?", [id.agent,id.externalID])
+        }
+    }
+
+    func watched(_ model: MemoryModelConfiguration, due: Bool) throws -> [(SessionID, String)] {
+        let filter = due ? " AND w.dirty=1 AND w.retry_at<=unixepoch() AND s.archived_at IS NULL ORDER BY w.failures,w.rowid" : ""
+        return try rows("SELECT w.agent,w.external_id,w.revision FROM semantic_watch w JOIN sessions s USING(agent,external_id) WHERE w.endpoint=? AND w.model=?" + filter, [model.endpoint,model.model]).map {
+            (try SessionID(agent: $0[0] ?? "", externalID: $0[1] ?? ""), $0[2] ?? "0")
+        }
+    }
+
+    func finishWatch(_ id: SessionID, revision: String, success: Bool) throws {
+        let update = success ? "dirty=0,failures=0,retry_at=0" : "failures=failures+1,retry_at=unixepoch()+min(3600,30*(1<<min(failures,7)))"
+        try run("UPDATE semantic_watch SET " + update + " WHERE agent=? AND external_id=? AND revision=?", [id.agent,id.externalID,revision])
+    }
+
+    func semanticPage(_ id: SessionID, offset: Int, limit: Int) throws -> [SessionMessage] {
+        try rows("SELECT message_id,role,content,timestamp FROM messages WHERE agent=? AND external_id=? AND role IN ('user','assistant') ORDER BY ordinal,message_id LIMIT ? OFFSET ?", [id.agent,id.externalID,String(limit),String(offset)]).map(Self.message(from:))
+    }
+
+    func cachedCheckpoint(_ id: SessionID, offset: Int, digest: String) throws -> String? {
+        try text("SELECT checkpoint FROM semantic_batches WHERE agent=? AND external_id=? AND position=? AND digest=?", [id.agent,id.externalID,String(offset),digest])
+    }
+
+    func saveSemanticMemory(_ result: SemanticMemoryExtraction, session id: SessionID, expected: [SessionMessage], offset: Int = 0, digest: String? = nil) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            guard let summary = try summary(id), let project = summary.stableProjectID else { throw CaptureError.invalid("Session has no project") }
+            let current = try semanticPage(id, offset: offset, limit: expected.count)
+            guard current == expected else { throw CaptureError.invalid("Conversation changed during extraction; retry") }
+            let allowed = Set(expected.filter { $0.role == .user }.map(\.id))
+            for candidate in result.candidates {
+                guard allowed.contains(candidate.sourceMessageID) else { throw CaptureError.invalid("Invalid memory source") }
+                let key = [id.agent,id.externalID,candidate.sourceMessageID,candidate.kind,candidate.content].joined(separator: "\u{0}")
+                let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+                try run("INSERT OR IGNORE INTO memories(id,stable_project_id,agent,external_id,kind,content,updated_at,status,source_message_id,scope) VALUES(?,?,?,?,?,?,?,'candidate',?,'session')", [hash,project,id.agent,id.externalID,candidate.kind,candidate.content,String(summary.lastActivity),candidate.sourceMessageID])
+            }
+            let checkpointID = "semantic-checkpoint|\(id.agent)|\(id.externalID)"
+            try run("INSERT INTO memories(id,stable_project_id,agent,external_id,kind,content,updated_at,status,scope) VALUES(?,?,?,?,?,?,?,'checkpoint','session') ON CONFLICT(id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at,stable_project_id=excluded.stable_project_id", [checkpointID,project,id.agent,id.externalID,"summary",result.checkpoint,String(summary.lastActivity)])
+            if let digest {
+                try run("INSERT OR REPLACE INTO semantic_batches VALUES(?,?,?,?,?)", [id.agent,id.externalID,String(offset),digest,result.checkpoint])
+            }
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
+
     func list(project: String? = nil, limit: Int = 200) throws -> [SessionSummary] {
-        let query = "SELECT agent, external_id, project, title, message_count, activity, source_path, stable_project_id, run_state FROM sessions" + (project == nil ? "" : " WHERE stable_project_id=(SELECT project_id FROM workspaces WHERE device_id=? AND path=?)") + " ORDER BY activity DESC, agent, external_id LIMIT ?"
-        let values: [String?] = (project.map { [deviceID, $0] } ?? []) + [String(limit)]
+        var conditions = ["archived_at IS NULL"]
+        var values: [String?] = []
+        if let project {
+            conditions.append("stable_project_id=(SELECT project_id FROM workspaces WHERE device_id=? AND path=?)")
+            values += [deviceID, project]
+        }
+        values.append(String(limit))
+        let query = "SELECT agent, external_id, project, title, message_count, activity, source_path, stable_project_id, run_state, archived_at FROM sessions WHERE " + conditions.joined(separator: " AND ") + " ORDER BY activity DESC, agent, external_id LIMIT ?"
         return try rows(query, values).map(summary(from:))
+    }
+
+    func listArchived(limit: Int = 500) throws -> [SessionSummary] {
+        let query = "SELECT agent, external_id, project, title, message_count, activity, source_path, stable_project_id, run_state, archived_at FROM sessions WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, activity DESC, agent, external_id LIMIT ?"
+        return try rows(query, [String(limit)]).map(summary(from:))
+    }
+
+    /// Hide sessions that are no longer present in an authoritative source scan.
+    /// Archived rows are retained so restoring the conversation restores its history.
+    @discardableResult
+    func reconcileSessions(agent: String, liveExternalIDs: Set<String>) throws -> Int {
+        let stored = try rows("SELECT external_id, archived_at FROM sessions WHERE agent=?", [agent])
+        var missing: [String] = []
+        var restored: [String] = []
+        for row in stored {
+            guard let id = row[0] else { continue }
+            let archived = row[1] != nil
+            if liveExternalIDs.contains(id) {
+                if archived { restored.append(id) }
+            } else if !archived {
+                missing.append(id)
+            }
+        }
+        guard !missing.isEmpty || !restored.isEmpty else { return 0 }
+        try run("BEGIN IMMEDIATE")
+        do {
+            let now = String(Int64((Date().timeIntervalSince1970 * 1000).rounded()))
+            for id in missing {
+                try run("UPDATE sessions SET archived_at=? WHERE agent=? AND external_id=? AND archived_at IS NULL", [now, agent, id])
+            }
+            for id in restored {
+                try run("UPDATE sessions SET archived_at=NULL WHERE agent=? AND external_id=?", [agent, id])
+            }
+            try run("COMMIT")
+        } catch {
+            try? run("ROLLBACK")
+            throw error
+        }
+        return missing.count
     }
     func projects() throws -> [String] { try workspaces().map(\.path) }
     func projectRecords() throws -> [ProjectRecord] {
@@ -297,7 +465,7 @@ final class SessionStore {
         } catch { try? run("ROLLBACK"); throw error }
     }
     func stats(databaseURL: URL) throws -> StoreStats {
-        let sessions = try count("SELECT COUNT(*) FROM sessions", [])
+        let sessions = try count("SELECT COUNT(*) FROM sessions WHERE archived_at IS NULL", [])
         let messages = try count("SELECT COUNT(*) FROM messages", [])
         let bytes = [databaseURL.path, databaseURL.path + "-wal"].reduce(Int64(0)) { total, path in
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
@@ -328,7 +496,7 @@ final class SessionStore {
         try run("BEGIN IMMEDIATE")
         do {
             let version = try userVersion()
-            guard version <= 6 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 13 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             if version < 2 {
                 if try columns("sessions").contains("payload") { try migratePayload() }
                 try createSchema()
@@ -381,6 +549,40 @@ final class SessionStore {
                 if try !columns("capture_files").contains("run_state") { try run("ALTER TABLE capture_files ADD COLUMN run_state TEXT") }
                 try run("PRAGMA user_version = 6")
             }
+            if version < 7 {
+                if try !columns("sessions").contains("archived_at") { try run("ALTER TABLE sessions ADD COLUMN archived_at INTEGER") }
+                try run("PRAGMA user_version = 7")
+            }
+            if version < 9 {
+                if try !columns("memories").contains("status") { try run("ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'candidate'") }
+                if try !columns("memories").contains("source_message_id") { try run("ALTER TABLE memories ADD COLUMN source_message_id TEXT") }
+                try run("UPDATE memories SET status='checkpoint' WHERE kind='summary'")
+                try run("CREATE TABLE IF NOT EXISTS memory_processed(agent TEXT NOT NULL, external_id TEXT NOT NULL, message_id TEXT NOT NULL, PRIMARY KEY(agent,external_id,message_id))")
+            }
+            if version < 10 {
+                if try !columns("memories").contains("scope") { try run("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'session'") }
+                // Preserve the prior project-wide behavior only for already confirmed records.
+                try run("UPDATE memories SET scope='project' WHERE status='confirmed'")
+            }
+            if version < 11 {
+                try run("CREATE TABLE IF NOT EXISTS memory_jobs(agent TEXT NOT NULL, external_id TEXT NOT NULL, PRIMARY KEY(agent,external_id))")
+                try run("INSERT OR IGNORE INTO memory_jobs(agent, external_id) SELECT agent, external_id FROM sessions WHERE stable_project_id IS NOT NULL")
+            }
+            if version < 8 { try run("PRAGMA user_version = 8") }
+            if version < 9 { try run("PRAGMA user_version = 9") }
+            if version < 10 { try run("PRAGMA user_version = 10") }
+            if version < 11 { try run("PRAGMA user_version = 11") }
+            if version < 12 {
+                try run("CREATE TABLE IF NOT EXISTS semantic_batches(agent TEXT, external_id TEXT, position INTEGER, digest TEXT NOT NULL, checkpoint TEXT NOT NULL, PRIMARY KEY(agent,external_id,position))")
+                try run("CREATE TABLE IF NOT EXISTS semantic_watch(agent TEXT, external_id TEXT, endpoint TEXT NOT NULL, model TEXT NOT NULL, dirty INTEGER DEFAULT 1, revision INTEGER DEFAULT 0, failures INTEGER DEFAULT 0, retry_at INTEGER DEFAULT 0, PRIMARY KEY(agent,external_id))")
+                try run("CREATE TABLE IF NOT EXISTS memory_replacements(old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL, changed_at INTEGER NOT NULL)")
+                try run("PRAGMA user_version = 12")
+            }
+            if version < 13 {
+                try run("CREATE TABLE IF NOT EXISTS memory_conflicts(candidate_id TEXT NOT NULL, confirmed_id TEXT NOT NULL, reason TEXT NOT NULL, relation TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(candidate_id,confirmed_id))")
+                try run("CREATE TABLE IF NOT EXISTS memory_conflict_checks(digest TEXT PRIMARY KEY NOT NULL)")
+                try run("PRAGMA user_version = 13")
+            }
             try run("COMMIT")
         } catch { try? run("ROLLBACK"); throw error }
     }
@@ -404,9 +606,12 @@ final class SessionStore {
         try run("CREATE INDEX IF NOT EXISTS messages_source ON messages(source_path)")
         try createCaptureTable()
         try run("CREATE TABLE IF NOT EXISTS progress(id TEXT PRIMARY KEY, project TEXT NOT NULL, payload TEXT NOT NULL, timestamp INTEGER NOT NULL)")
+        try run("CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY NOT NULL, stable_project_id TEXT NOT NULL, agent TEXT NOT NULL, external_id TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+        try run("CREATE INDEX IF NOT EXISTS memories_project_updated ON memories(stable_project_id, updated_at DESC)")
+        try run("CREATE INDEX IF NOT EXISTS memories_session ON memories(agent, external_id)")
     }
     private func createSessionTables() throws {
-        try run("CREATE TABLE IF NOT EXISTS sessions(agent TEXT NOT NULL, external_id TEXT NOT NULL, project TEXT, title TEXT NOT NULL, message_count INTEGER NOT NULL, activity INTEGER NOT NULL, source_path TEXT NOT NULL, ordinals INTEGER NOT NULL, PRIMARY KEY(agent, external_id))")
+        try run("CREATE TABLE IF NOT EXISTS sessions(agent TEXT NOT NULL, external_id TEXT NOT NULL, project TEXT, title TEXT NOT NULL, message_count INTEGER NOT NULL, activity INTEGER NOT NULL, source_path TEXT NOT NULL, ordinals INTEGER NOT NULL, archived_at INTEGER, PRIMARY KEY(agent, external_id))")
         try run("CREATE TABLE IF NOT EXISTS messages(agent TEXT NOT NULL, external_id TEXT NOT NULL, message_id TEXT NOT NULL, source_path TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, timestamp INTEGER, ordinal INTEGER NOT NULL, PRIMARY KEY(agent, external_id, message_id))")
     }
     private func createCaptureTable() throws {
@@ -459,12 +664,16 @@ final class SessionStore {
         let minor = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
         return major * 1000 + minor
     }
+    private static func memory(from row: [String?]) -> ProjectMemory? {
+        guard let kind = row[0], let agent = row[1], let externalID = row[2], let content = row[3] else { return nil }
+        return ProjectMemory(kind: kind, agent: agent, externalID: externalID, stableProjectID: row[5] ?? "", content: content, updatedAt: Int64(row[4] ?? "") ?? 0, id: row[6] ?? "", status: row[7] ?? "candidate", sourceMessageID: row[8], scope: row[9] ?? "session")
+    }
     private static func message(from row: [String?]) -> SessionMessage {
         SessionMessage(id: row[0] ?? "", role: SessionMessage.Role(rawValue: row[1] ?? "") ?? .system, content: row[2] ?? "", timestampMilliseconds: row[3].flatMap(Int64.init))
     }
     private func summary(from row: [String?]) throws -> SessionSummary {
         let externalID = row[1] ?? ""
-        return SessionSummary(source: SessionSource(id: try SessionID(agent: row[0] ?? "", externalID: externalID), sourcePath: row[6] ?? ""), projectID: row[2], stableProjectID: row[7], title: row[3] ?? externalID, messageCount: Int(row[4] ?? "") ?? 0, lastActivity: Int64(row[5] ?? "") ?? 0, runState: row[8].flatMap(SessionRunState.init(rawValue:)))
+        return SessionSummary(source: SessionSource(id: try SessionID(agent: row[0] ?? "", externalID: externalID), sourcePath: row[6] ?? ""), projectID: row[2], stableProjectID: row[7], title: row[3] ?? externalID, messageCount: Int(row[4] ?? "") ?? 0, lastActivity: Int64(row[5] ?? "") ?? 0, runState: row[8].flatMap(SessionRunState.init(rawValue:)), archivedAt: row[9].flatMap(Int64.init))
     }
     private func userVersion() throws -> Int { Int(try text("PRAGMA user_version") ?? "") ?? 0 }
     private func columns(_ table: String) throws -> Set<String> { try Set(rows("PRAGMA table_info(\(table))").compactMap { $0[1] }) }
@@ -499,4 +708,55 @@ final class SessionStore {
         }
     }
     private func error() -> CaptureError { .invalid(String(cString: sqlite3_errmsg(db))) }
+}
+
+
+extension SessionStore {
+    func conflictTargets(_ candidate: ProjectMemory) throws -> [ProjectMemory] {
+        try rows("""
+            SELECT kind,agent,external_id,content,updated_at,stable_project_id,id,status,source_message_id,scope
+            FROM memories WHERE status='confirmed' AND kind=? AND id!=?
+            AND (scope='global' OR (stable_project_id=? AND
+                (scope='project' OR (scope='session' AND agent=? AND external_id=?))))
+            ORDER BY id
+            """, [candidate.kind,candidate.id,candidate.stableProjectID,candidate.agent,candidate.externalID]).compactMap(Self.memory(from:))
+    }
+
+    func hasConflictCheck(_ digest: String) throws -> Bool {
+        try count("SELECT count(*) FROM memory_conflict_checks WHERE digest=?", [digest]) > 0
+    }
+
+    func memoryConflicts() throws -> [MemoryConflict] {
+        try rows("""
+            SELECT c.candidate_id,c.confirmed_id,c.reason,c.relation FROM memory_conflicts c
+            JOIN memories n ON n.id=c.candidate_id JOIN memories o ON o.id=c.confirmed_id
+            WHERE c.dismissed=0 AND n.status='candidate' AND o.status='confirmed' AND n.kind=o.kind
+            AND (o.scope='global' OR (o.stable_project_id=n.stable_project_id AND
+                (o.scope='project' OR (o.scope='session' AND o.agent=n.agent AND o.external_id=n.external_id))))
+            ORDER BY c.candidate_id,c.confirmed_id
+            """).map { MemoryConflict(candidateID: $0[0]!, confirmedID: $0[1]!, reason: $0[2]!, relation: $0[3]!) }
+    }
+
+    func dismissConflict(_ conflict: MemoryConflict) throws {
+        try run("UPDATE memory_conflicts SET dismissed=1 WHERE candidate_id=? AND confirmed_id=?", [conflict.candidateID,conflict.confirmedID])
+    }
+
+    func saveConflicts(_ conflicts: [MemoryConflict], candidate: ProjectMemory, targets: [ProjectMemory], digest: String) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            let current = try memories(agent: candidate.agent, externalID: candidate.externalID).first { $0.id == candidate.id }
+            let available = try conflictTargets(candidate)
+            guard current == candidate, targets.allSatisfy({ available.contains($0) }) else {
+                throw CaptureError.invalid("Memory changed during conflict review; retry")
+            }
+            for conflict in conflicts {
+                guard conflict.candidateID == candidate.id, targets.contains(where: { $0.id == conflict.confirmedID }) else {
+                    throw CaptureError.invalid("Invalid conflict source")
+                }
+                try run("INSERT INTO memory_conflicts(candidate_id,confirmed_id,reason,relation) VALUES(?,?,?,?) ON CONFLICT(candidate_id,confirmed_id) DO UPDATE SET reason=excluded.reason,relation=excluded.relation", [conflict.candidateID,conflict.confirmedID,conflict.reason,conflict.relation])
+            }
+            try run("INSERT OR IGNORE INTO memory_conflict_checks VALUES(?)", [digest])
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
 }

@@ -107,9 +107,16 @@ public enum SessionParser {
         var pendingApprovals = state.runState == .awaitingApproval ? 1 : 0
         guard !state.rejected else { return (nil, state) }
         guard !body.isEmpty else { return (nil, state) }
+        if externalID == nil, agent == "antigravity" {
+            externalID = antigravityExternalID(from: path)
+        }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let plainISO = ISO8601DateFormatter()
+        func parseISO(_ value: Any?) -> Int64? {
+            guard let text = value as? String else { return nil }
+            return (iso.date(from: text) ?? plainISO.date(from: text)).map { Int64($0.timeIntervalSince1970 * 1000) }
+        }
         let lines = body.components(separatedBy: "\n")
         for (offset, line) in lines.enumerated() where !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let index = state.lineIndex + offset
@@ -118,15 +125,15 @@ public enum SessionParser {
                 throw CaptureError.invalid("Malformed JSON at line \(index + 1) in \(path)")
             }
             if event["ordinal"] as? Int == nil { usesOrdinals = false }
-            let eventID = event["ordinal"] as? Int ?? index
+            let eventID = event["ordinal"] as? Int ?? event["step_index"] as? Int ?? index
             let type = event["type"] as? String ?? ""
             let payload = event["payload"] as? [String: Any] ?? [:]
             let eventBody = event["data"] as? [String: Any] ?? [:]
             let timestamp: Int64?
             if agent == "codex" {
-                if let value = event["timestamp"] as? String, type == "response_item" {
-                    timestamp = (iso.date(from: value) ?? plainISO.date(from: value)).map { Int64($0.timeIntervalSince1970 * 1000) }
-                } else { timestamp = nil }
+                timestamp = type == "response_item" ? parseISO(event["timestamp"]) : nil
+            } else if agent == "antigravity" {
+                timestamp = parseISO(event["created_at"])
             } else {
                 timestamp = (event["time"] as? NSNumber)?.int64Value
             }
@@ -201,6 +208,32 @@ public enum SessionParser {
                     let kind = (eventBody["reason"] as? [String: Any])?["kind"] as? String
                     state.runState = kind == "aborted" ? .aborted : .finished
                 }
+            } else if agent == "antigravity" {
+                switch type {
+                case "USER_INPUT":
+                    if let raw = event["content"] as? String {
+                        append(.user, antigravityUserText(raw))
+                    }
+                case "PLANNER_RESPONSE":
+                    if let text = (event["content"] as? String) ?? (event["text"] as? String) {
+                        append(.assistant, text, suffix: ":0")
+                    }
+                    if let calls = event["tool_calls"] as? [[String: Any]] {
+                        for (toolOffset, call) in calls.enumerated() {
+                            let name = call["name"] as? String ?? "tool"
+                            append(.tool, "Call \(name):\n" + stringify(call["args"]), suffix: ":\(toolOffset + 1)")
+                        }
+                    }
+                case "GENERIC":
+                    if let content = event["content"] as? String {
+                        append(.tool, "Result:\n" + content)
+                    }
+                case "SYSTEM_MESSAGE":
+                    if let content = event["content"] as? String {
+                        append(.system, antigravitySystemText(content))
+                    }
+                default: break
+                }
             } else { throw CaptureError.invalid("Unsupported agent: \(agent)") }
         }
         var updated = state
@@ -233,5 +266,32 @@ public enum SessionParser {
         if let text = value as? String { return text }
         guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), let text = String(data: data, encoding: .utf8) else { return String(describing: value) }
         return text
+    }
+
+    private static func antigravityExternalID(from path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        let logsDir = url.deletingLastPathComponent()
+        let systemDir = logsDir.deletingLastPathComponent()
+        if logsDir.lastPathComponent == "logs", systemDir.lastPathComponent == ".system_generated" {
+            let id = systemDir.deletingLastPathComponent().lastPathComponent
+            return id.isEmpty ? nil : id
+        }
+        let stem = url.deletingPathExtension().lastPathComponent
+        return stem.isEmpty ? nil : stem
+    }
+
+    private static func antigravityUserText(_ raw: String) -> String {
+        unwrapTag("USER_REQUEST", in: raw) ?? raw
+    }
+
+    private static func antigravitySystemText(_ raw: String) -> String {
+        unwrapTag("SYSTEM_MESSAGE", in: raw) ?? raw
+    }
+
+    private static func unwrapTag(_ tag: String, in raw: String) -> String? {
+        let open = "<\(tag)>"
+        let close = "</\(tag)>"
+        guard let start = raw.range(of: open), let end = raw.range(of: close, range: start.upperBound..<raw.endIndex) else { return nil }
+        return String(raw[start.upperBound..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

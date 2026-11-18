@@ -12,12 +12,14 @@ enum Weave {
     static let harness = Color.adaptive(light: 0xA15C22, dark: 0xE7B06A)
     static let cursor = Color.adaptive(light: 0x5B4B8A, dark: 0xC4B5FD)
     static let cursorBadge = Color.adaptive(light: 0x5B4B8A, dark: 0x3B3156)
+    static let antigravity = Color.adaptive(light: 0x1D6F9A, dark: 0x7CC8F8)
     static let line = Color.primary.opacity(0.08)
 
     static func agent(_ name: String) -> Color {
         switch name {
         case "dsh": harness
         case "cursor": cursor
+        case "antigravity": antigravity
         default: codex
         }
     }

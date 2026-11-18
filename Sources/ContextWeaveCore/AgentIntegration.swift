@@ -43,22 +43,56 @@ public enum AgentIntegration {
 }
 
 extension AgentIntegration {
-    /// Cursor uses JSON rather than the marked TOML/YAML blocks used by other agents.
+    /// Cursor and Antigravity use JSON rather than the marked TOML/YAML blocks used by Codex and DSH.
     /// The environment marker identifies only registrations created by ContextWeave.
     public static func cursorConfiguration(_ current: String, executable: String?) throws -> String {
+        try jsonConfiguration(current, executable: executable, label: "Cursor")
+    }
+
+    /// JSON shown in the manual setup section for Cursor.
+    public static func cursorSnippet(executable: String) -> String {
+        (try? cursorConfiguration("", executable: executable)) ?? ""
+    }
+
+    public static func cursorStatus(home: URL) -> AgentConnectionStatus {
+        jsonStatus(agent: "cursor", label: "Cursor", url: home.appendingPathComponent("mcp.json"))
+    }
+
+    public static func configureCursor(executable: String?, home: URL) throws -> [String] {
+        try configureJSON(agent: "cursor", label: "Cursor", url: home.appendingPathComponent("mcp.json"), executable: executable)
+    }
+
+    public static func antigravityConfiguration(_ current: String, executable: String?) throws -> String {
+        try jsonConfiguration(current, executable: executable, label: "Antigravity")
+    }
+
+    /// JSON shown in the manual setup section for Antigravity.
+    public static func antigravitySnippet(executable: String) -> String {
+        (try? antigravityConfiguration("", executable: executable)) ?? ""
+    }
+
+    public static func antigravityStatus(home: URL) -> AgentConnectionStatus {
+        jsonStatus(agent: "antigravity", label: "Antigravity", url: home.appendingPathComponent("mcp_config.json"))
+    }
+
+    public static func configureAntigravity(executable: String?, home: URL) throws -> [String] {
+        try configureJSON(agent: "antigravity", label: "Antigravity", url: home.appendingPathComponent("mcp_config.json"), executable: executable)
+    }
+
+    private static func jsonConfiguration(_ current: String, executable: String?, label: String) throws -> String {
         let data = Data((current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : current).utf8)
         guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CaptureError.invalid("Cursor MCP configuration must be a JSON object")
+            throw CaptureError.invalid("\(label) MCP configuration must be a JSON object")
         }
         guard root["mcpServers"] == nil || root["mcpServers"] is [String: Any] else {
-            throw CaptureError.invalid("Cursor mcpServers must be a JSON object")
+            throw CaptureError.invalid("\(label) mcpServers must be a JSON object")
         }
         var servers = root["mcpServers"] as? [String: Any] ?? [:]
         if let existing = servers["contextweave"] {
             guard let entry = existing as? [String: Any],
                   let env = entry["env"] as? [String: Any],
                   env["CONTEXTWEAVE_MANAGED"] as? String == "1" else {
-                throw CaptureError.invalid("An existing Cursor contextweave registration needs manual review; configuration was not changed.")
+                throw CaptureError.invalid("An existing \(label) contextweave registration needs manual review; configuration was not changed.")
             }
         }
         if let executable {
@@ -68,37 +102,39 @@ extension AgentIntegration {
         return String(decoding: try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]), as: UTF8.self) + "\n"
     }
 
-    /// JSON shown in the manual setup section.
-    public static func cursorSnippet(executable: String) -> String {
-        (try? cursorConfiguration("", executable: executable)) ?? ""
-    }
-
-    public static func cursorStatus(home: URL) -> AgentConnectionStatus {
-        let url = home.appendingPathComponent("mcp.json")
+    private static func jsonStatus(agent: String, label: String, url: URL) -> AgentConnectionStatus {
         guard FileManager.default.fileExists(atPath: url.path) else {
-            return AgentConnectionStatus(agent: "cursor", configPath: url.path, state: .notConfigured, helperPath: nil, detail: nil)
+            return AgentConnectionStatus(agent: agent, configPath: url.path, state: .notConfigured, helperPath: nil, detail: nil)
         }
-        guard let data = try? Data(contentsOf: url), let object = try? JSONSerialization.jsonObject(with: data),
+        guard let rawText = try? String(contentsOf: url, encoding: .utf8) else {
+            return AgentConnectionStatus(agent: agent, configPath: url.path, state: .unreadable, helperPath: nil, detail: "Invalid \(label) MCP configuration.")
+        }
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return AgentConnectionStatus(agent: agent, configPath: url.path, state: .notConfigured, helperPath: nil, detail: nil)
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)),
               let root = object as? [String: Any], root["mcpServers"] == nil || root["mcpServers"] is [String: Any] else {
-            return AgentConnectionStatus(agent: "cursor", configPath: url.path, state: .unreadable, helperPath: nil, detail: "Invalid Cursor MCP configuration.")
+            return AgentConnectionStatus(agent: agent, configPath: url.path, state: .unreadable, helperPath: nil, detail: "Invalid \(label) MCP configuration.")
         }
         guard let entry = (root["mcpServers"] as? [String: Any])?["contextweave"] else {
-            return AgentConnectionStatus(agent: "cursor", configPath: url.path, state: .notConfigured, helperPath: nil, detail: nil)
+            return AgentConnectionStatus(agent: agent, configPath: url.path, state: .notConfigured, helperPath: nil, detail: nil)
         }
         guard let server = entry as? [String: Any], let env = server["env"] as? [String: Any], env["CONTEXTWEAVE_MANAGED"] as? String == "1" else {
-            return AgentConnectionStatus(agent: "cursor", configPath: url.path, state: .unmanaged, helperPath: nil, detail: "Cursor registration is not managed by ContextWeave.")
+            return AgentConnectionStatus(agent: agent, configPath: url.path, state: .unmanaged, helperPath: nil, detail: "\(label) registration is not managed by ContextWeave.")
         }
-        return AgentConnectionStatus(agent: "cursor", configPath: url.path, state: .connected, helperPath: server["command"] as? String, detail: nil)
+        return AgentConnectionStatus(agent: agent, configPath: url.path, state: .connected, helperPath: server["command"] as? String, detail: nil)
     }
 
-    public static func configureCursor(executable: String?, home: URL) throws -> [String] {
+    private static func configureJSON(agent: String, label: String, url: URL, executable: String?) throws -> [String] {
         if let executable, (!executable.hasPrefix("/") || !FileManager.default.isExecutableFile(atPath: executable)) {
             throw CaptureError.invalid("MCP helper must be an existing absolute executable path")
         }
-        let url = home.appendingPathComponent("mcp.json")
         let old = FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
-        if executable == nil && cursorStatus(home: home).state == .notConfigured { return ["No managed Cursor registration"] }
-        let new = try cursorConfiguration(old, executable: executable)
+        if executable == nil && jsonStatus(agent: agent, label: label, url: url).state == .notConfigured {
+            return ["No managed \(label) registration"]
+        }
+        let new = try jsonConfiguration(old, executable: executable, label: label)
         if old == new { return ["Already connected: \(url.path)"] }
         var messages: [String] = []
         if let backup = try backup(url) { messages.append("Backup: \(backup)") }

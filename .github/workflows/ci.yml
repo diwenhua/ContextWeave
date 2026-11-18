@@ -17,3 +17,5 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Exercise MCP fault recovery
+        run: python3 scripts/test-mcp-resilience.py

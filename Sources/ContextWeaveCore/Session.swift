@@ -36,7 +36,7 @@ public enum SessionRunState: String, Codable, Sendable {
     case aborted
 }
 
-public struct SessionMessage: Codable, Sendable {
+public struct SessionMessage: Codable, Sendable, Equatable {
     public enum Role: String, Codable, Sendable {
         case user, assistant, tool, system
     }

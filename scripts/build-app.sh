@@ -13,8 +13,18 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Frameworks"
 framework=$(find .build/artifacts -type d -name Sparkle.framework -path "*macos*" -print -quit)
 if [ -z "$framework" ]; then echo "Sparkle.framework not found in SwiftPM artifacts" >&2; exit 1; fi
 ditto "$framework" "$app_dir/Contents/Frameworks/Sparkle.framework"
-cp "$binary_path/ContextWeave" "$app_dir/Contents/MacOS/ContextWeave"
-cp "$binary_path/contextweave-mcp" "$app_dir/Contents/MacOS/contextweave-mcp"
+# Never overwrite a running Mach-O inode: macOS can kill processes using the
+# modified code-signing pages. Write beside the destination and rename atomically.
+install_binary() {
+    target="$app_dir/Contents/MacOS/$2"
+    temp_binary=$(mktemp "$app_dir/Contents/MacOS/.$2.XXXXXX")
+    if ! cp "$1" "$temp_binary" || ! chmod 755 "$temp_binary" || ! mv -f "$temp_binary" "$target"; then
+        rm -f "$temp_binary"
+        return 1
+    fi
+}
+install_binary "$binary_path/ContextWeave" "ContextWeave"
+install_binary "$binary_path/contextweave-mcp" "contextweave-mcp"
 mkdir -p "$app_dir/Contents/Resources"
 ./scripts/build-icon.sh
 cp "$PWD/.build/icon-assets/ContextWeave.icns" "$app_dir/Contents/Resources/ContextWeave.icns"
@@ -41,6 +51,8 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+# Bind Info.plist into the ad-hoc signature so Notification Center can address this bundle.
+codesign --force --sign - "$app_dir"
 # Notify filesystem observers that this existing bundle was rebuilt in place.
 touch "$app_dir"
 printf 'Built %s\n' "$app_dir"

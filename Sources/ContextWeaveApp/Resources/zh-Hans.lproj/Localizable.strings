@@ -11,6 +11,7 @@
 "handoff.noProject" = "未关联项目";
 "handoff.target" = "接续到";
 "handoff.copy" = "复制交接上下文";
+"handoff.session.id" = "会话 ID";
 "handoff.copied" = "已复制";
 "handoff.jumpToLatest" = "回到最新";
 "handoff.earlier" = "加载更早的消息";
@@ -18,6 +19,7 @@
 "handoff.sessions.less" = "收起";
 "handoff.run.running" = "执行中";
 "handoff.run.approval" = "等待批准";
+"handoff.run.approvalTitle" = "%@ 等待批准";
 "handoff.run.ended" = "已结束";
 "handoff.run.endedTitle" = "%@ 已结束";
 "handoff.role.user" = "用户";
@@ -35,10 +37,15 @@
 "handoff.tool.collapse" = "收起工具日志";
 "handoff.role.tool" = "工具";
 "handoff.role.system" = "系统";
+"handoff.memory" = "记忆";
+"handoff.memory.summary" = "摘要";
+"handoff.memory.decision" = "决定";
+"handoff.memory.preference" = "偏好";
 "handoff.empty" = "让每个 Agent，都接得上你的工作。";
 "handoff.hint" = "选择已采集的会话，查看消息并复制项目交接上下文。";
 
 "tab.sessions" = "会话";
+"tab.memory" = "记忆";
 "settings.open" = "设置…";
 "settings.cancel" = "取消";
 "settings.scanNow" = "立即扫描";
@@ -54,7 +61,7 @@
 "settings.appearance.hint" = "跟随系统会随 macOS 外观自动切换；选择会立即应用到所有 ContextWeave 窗口，并保存在设置文件中。";
 
 
-"settings.agents.intro" = "为 Codex、DeepSeek Harness 与 Cursor 写入本地 MCP 服务配置；写入前会备份原文件。";
+"settings.agents.intro" = "为 Codex、DeepSeek Harness、Cursor 与 Antigravity 写入本地 MCP 服务配置；写入前会备份原文件。";
 "settings.agents.connect" = "接入全部 Agent";
 "settings.agents.update" = "更新全部接入";
 "settings.agents.remove" = "移除全部接入";
@@ -64,6 +71,7 @@
 "settings.agents.unreadable" = "无法读取";
 "settings.agents.unmanagedHint" = "配置文件中存在缺少完整 ContextWeave 标记的 contextweave 条目。请手动删除该条目或补全 BEGIN/END 标记，然后重新检测。";
 "settings.agents.cursorUnmanagedHint" = "Cursor 的 mcp.json 中存在非 ContextWeave 托管的 contextweave 条目。请删除该条目（或补上 CONTEXTWEAVE_MANAGED=1 环境标记）后重新检测。";
+"settings.agents.antigravityUnmanagedHint" = "Antigravity 的 mcp_config.json 中存在非 ContextWeave 托管的 contextweave 条目。请删除该条目（或补上 CONTEXTWEAVE_MANAGED=1 环境标记）后重新检测。";
 "settings.agents.unreadableHint" = "配置文件存在但无法读取，请检查文件权限后重新检测。";
 "settings.agents.helperMismatchHint" = "接入配置指向了其他位置。点击“更新接入配置”写入当前 Helper 路径。";
 "settings.agents.helperMissingHint" = "已登记的 Helper 不存在。点击“更新接入配置”进行修复。";
@@ -74,13 +82,14 @@
 "settings.agents.registeredHelper" = "已登记 Helper：%@";
 "settings.agents.helperUnavailable" = "找不到 MCP Helper：%@。请先构建应用包（./scripts/build-app.sh）。";
 "settings.agents.removeConfirmTitle" = "移除 ContextWeave 全部接入？";
-"settings.agents.removeConfirmMessage" = "将从 Codex 与 DeepSeek Harness 配置中删除带标记的区块，并从 Cursor 的 mcp.json 中移除托管条目；备份文件会保留。";
+"settings.agents.removeConfirmMessage" = "将从 Codex 与 DeepSeek Harness 配置中删除带标记的区块，并从 Cursor 的 mcp.json 与 Antigravity 的 mcp_config.json 中移除托管条目；备份文件会保留。";
 "settings.agents.removeConfirm" = "移除";
 "settings.agents.manual" = "手动配置";
-"settings.agents.manualHint" = "仅在需要自行编辑配置文件时使用。三个 Agent 启动同一个 Helper，并共享数据库。";
+"settings.agents.manualHint" = "仅在需要自行编辑配置文件时使用。四个 Agent 启动同一个 Helper，并共享数据库。";
 "settings.agents.codexPath" = "Codex — %@";
 "settings.agents.dshPath" = "DeepSeek Harness — %@";
 "settings.agents.cursorPath" = "Cursor — %@";
+"settings.agents.antigravityPath" = "Antigravity — %@";
 "settings.agents.refresh" = "重新检测";
 "settings.agents.checking" = "正在检测接入状态…";
 
@@ -108,7 +117,7 @@
 "settings.updates.unavailable" = "仅在构建后的应用包中可检查更新。";
 
 "settings.about.title" = "关于 ContextWeave";
-"settings.about.description" = "面向 Codex 与 DeepSeek Harness 的本地优先上下文交接工具，会话数据只保存在这台 Mac 上。";
+"settings.about.description" = "面向 Codex、DeepSeek Harness、Cursor 与 Antigravity 的本地优先上下文交接工具，会话数据只保存在这台 Mac 上。";
 "settings.about.version" = "版本 %@（%@）";
 "settings.about.helper" = "MCP Helper";
 "settings.about.database" = "数据库";
@@ -117,3 +126,94 @@
 
 "settings.error.read" = "无法读取设置文件。";
 "settings.error.write" = "无法保存设置文件。";
+"memory.subtitle" = "左侧选择全局、项目或一条会话，右侧查看对应的记忆。";
+"memory.count" = "%d 条记忆";
+"memory.emptyTitle" = "还没有记忆";
+"memory.emptyBody" = "采集到对话后，目标和最近进展会出现在这里。";
+"memory.emptyFilter" = "这个筛选下没有记忆";
+"memory.emptyFilterBody" = "换一个类型，就能看到其他记忆。";
+"memory.kind.all" = "全部";
+"memory.openSession" = "查看会话";
+"tab.archived" = "已归档";
+"archive.subtitle" = "在原 Agent 中归档或删除的会话。历史只读保留在本地，恢复后会自动回到会话列表。";
+"archive.count" = "%d 个已归档";
+"archive.emptyTitle" = "暂无已归档会话";
+"archive.emptyBody" = "在 Codex、DeepSeek Harness、Cursor 或 Antigravity 中归档或删除会话后，会出现在这里。";
+"archive.archivedAt" = "归档于 %@";
+"archive.readOnly" = "只读";
+"archive.loading" = "正在加载归档会话…";
+"archive.emptySession" = "该会话没有已保存的消息。";
+"archive.messages" = "%d 条消息";
+"archive.close" = "关闭";
+
+"memory.status.all" = "全部状态";
+"memory.status.checkpoint" = "会话检查点";
+"memory.status.candidate" = "待确认";
+"memory.status.confirmed" = "已确认";
+"memory.status.rejected" = "已排除";
+"memory.confirm" = "确认";
+"memory.reject" = "排除";
+"memory.reset" = "恢复待确认";
+"memory.search" = "搜索记忆、项目或会话";
+
+"memory.scope.all" = "全部记忆";
+"memory.scope.global" = "全局记忆";
+"memory.scope.project" = "项目记忆";
+"memory.scope.session" = "会话记忆";
+"memory.session.subtitle" = "左侧按项目列出会话，点开后在右侧看这条会话的记忆。";
+"memory.session.placeholder" = "选择一条会话";
+"memory.session.placeholderBody" = "左侧按项目列出会话，点开后在这里看它的记忆。";
+"memory.move" = "移动到…";
+"memory.global.title" = "全局记忆";
+"memory.global.subtitle" = "对所有项目生效。适合已经确认的偏好和决定，从会话或项目里移过来。";
+"memory.global.emptyTitle" = "还没有全局记忆";
+"memory.global.emptyBody" = "打开一条会话或一个项目，把记忆移动到「全局记忆」。";
+"memory.global.search" = "搜索全局记忆";
+"memory.project.subtitle" = "只属于这个项目。";
+"memory.nav.search" = "搜索项目或会话";
+"memory.nav.empty" = "没有匹配的项目或会话";
+"memory.session.emptyTitle" = "这条会话还没有记忆";
+"memory.session.emptyBody" = "采集到对话后，目标和最近进展会出现在这里。";
+"memory.project.emptyTitle" = "这个项目还没有项目记忆";
+"memory.project.emptyBody" = "在会话里把一条记忆移动到「项目记忆」，它会出现在这里。";
+"memory.project.open" = "查看这个项目的记忆";
+"memory.project.toggle" = "展开或收起这个项目下的会话";
+"memory.session.section" = "会话记忆";
+"memory.session.empty" = "还没有";
+"memory.rejected.show" = "显示已排除（%d）";
+"memory.rejected.hide" = "收起已排除（%d）";
+
+"memory.processing" = "正在后台整理，剩余 %lld 个会话";
+"memory.ruleMode" = "选择会话后，可用模型整理记忆或开启自动整理。";
+
+"settings.section.memoryModel" = "记忆模型";
+"settings.model.intro" = "配置用于记忆理解的模型服务。";
+"settings.model.presets" = "服务预设";
+"settings.model.endpoint" = "Chat Completions 接口地址";
+"settings.model.name" = "模型名称";
+"settings.model.nameHint" = "输入服务商提供的模型名称";
+"settings.model.keySaved" = "钥匙串中已有密钥";
+"settings.model.keyMissing" = "当前地址尚无密钥";
+"settings.model.keyHint" = "留空保留已存密钥；本地服务可不填";
+"settings.model.privacy" = "API Key 保存在 macOS 钥匙串，不写入设置文件。切换地址后，密钥不会自动发送给新地址。";
+"settings.model.save" = "保存配置";
+"settings.model.test" = "测试连接";
+"settings.model.removeKey" = "删除密钥";
+"settings.model.testHint" = "测试会发送固定的简短消息，可能产生少量费用；不会发送历史对话。";
+"settings.model.notIntegrated" = "在会话记忆页可手动整理，也可为单个会话开启扫描后自动整理。";
+"settings.model.saved" = "模型配置已保存。";
+"settings.model.removed" = "当前地址的密钥已删除。";
+"settings.model.success" = "连接成功。";
+
+"memory.semantic.run" = "用模型整理此会话";
+"memory.semantic.privacy" = "将完整对话分段脱敏，并将适用的已确认记忆发送至已配置模型，用于整理与冲突识别。可能产生费用，脱敏不能保证覆盖所有敏感信息。";
+"memory.semantic.success" = "模型整理完成，候选记忆待确认。";
+
+"memory.semantic.watch" = "扫描后自动整理此会话";
+"memory.replace" = "取代旧记忆…";
+"memory.status.superseded" = "已被取代";
+"memory.processed" = "已处理 %d 条消息";
+"memory.evidence" = "查看引用原文";
+"memory.conflict.title" = "可能存在冲突 · 待审核";
+"memory.conflict.replace" = "替代并采用原记忆的作用范围";
+"memory.conflict.keep" = "两条可共存，忽略此冲突";

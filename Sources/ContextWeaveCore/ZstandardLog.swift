@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// DSH appends independent zstd frames. Only complete frames are passed to the decoder.
 public enum ZstandardLog {
@@ -61,15 +62,34 @@ public enum ZstandardLog {
         defer { try? FileManager.default.removeItem(at: directory) }
         let input = directory.appendingPathComponent("session.zstd")
         try prefix.write(to: input)
+        let output = directory.appendingPathComponent("decoded.jsonl")
+        guard FileManager.default.createFile(atPath: output.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+            throw CaptureError.invalid("Cannot create temporary Zstandard output")
+        }
+        let outputHandle = try FileHandle(forWritingTo: output)
+        defer { try? outputHandle.close() }
         let process = Process()
-        let pipe = Pipe()
+        let finished = DispatchSemaphore(value: 0)
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = ["-q", "-d", "-c", input.path]
-        process.standardOutput = pipe
+        process.standardOutput = outputHandle
         process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { _ in finished.signal() }
         try process.run()
-        let decoded = pipe.fileHandleForReading.readDataToEndOfFile()
+        let configured = ProcessInfo.processInfo.environment["CONTEXTWEAVE_ZSTD_TIMEOUT_SECONDS"].flatMap(Int.init) ?? 30
+        let timeout = min(max(configured, 1), 120)
+        if finished.wait(timeout: .now() + .seconds(timeout)) == .timedOut {
+            // The child cannot be allowed to occupy a scan indefinitely. Use the process
+            // identifier only while Foundation still considers this exact child running.
+            if process.isRunning { kill(process.processIdentifier, SIGTERM) }
+            if finished.wait(timeout: .now() + .seconds(2)) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+            process.waitUntilExit()
+            throw CaptureError.invalid("Zstandard decoder timed out")
+        }
         process.waitUntilExit()
+        let decoded = try Data(contentsOf: output)
         guard process.terminationStatus == 0, let text = String(data: decoded, encoding: .utf8) else { throw CaptureError.invalid("Zstandard decoding failed") }
         return text
     }

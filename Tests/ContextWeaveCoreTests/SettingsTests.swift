@@ -6,11 +6,12 @@ final class SettingsTests: XCTestCase {
 
     func testDefaultsUseEnvironmentHomesThenHome() {
         let resolved = AppSettings().resolvedPaths(
-            environment: ["CODEX_HOME": "/opt/codex", "DSH_HOME": "~/dsh-home"],
+            environment: ["CODEX_HOME": "/opt/codex", "DSH_HOME": "~/dsh-home", "ANTIGRAVITY_HOME": "~/agy-home"],
             home: home
         )
         XCTAssertEqual(resolved.codexSessions.path, "/opt/codex/sessions")
         XCTAssertEqual(resolved.dshSessions.path, "/Users/example/dsh-home/sessions")
+        XCTAssertEqual(resolved.antigravityRoot.path, "/Users/example/agy-home")
         XCTAssertEqual(resolved.database.path, "/Users/example/Library/Application Support/ContextWeave/contextweave.sqlite")
     }
 
@@ -18,17 +19,20 @@ final class SettingsTests: XCTestCase {
         let settings = AppSettings(
             codexSessionsPath: "~/codex-sessions",
             dshSessionsPath: "/tmp/dsh sessions",
+            antigravityPath: "~/custom-agy",
             databasePath: "/tmp/custom.sqlite"
         )
-        let environment = ["CODEX_HOME": "/opt/codex", "CONTEXTWEAVE_DB": "/tmp/env.sqlite"]
+        let environment = ["CODEX_HOME": "/opt/codex", "ANTIGRAVITY_HOME": "/opt/agy", "CONTEXTWEAVE_DB": "/tmp/env.sqlite"]
         let resolved = settings.resolvedPaths(environment: environment, home: home)
         XCTAssertEqual(resolved.codexSessions.path, "/Users/example/codex-sessions")
         XCTAssertEqual(resolved.dshSessions.path, "/tmp/dsh sessions")
+        XCTAssertEqual(resolved.antigravityRoot.path, "/Users/example/custom-agy")
         XCTAssertEqual(resolved.database.path, "/tmp/custom.sqlite")
 
         let configuration = settings.captureConfiguration(environment: environment, home: home)
         XCTAssertEqual(configuration.codexRoot, resolved.codexSessions)
         XCTAssertEqual(configuration.dshRoot, resolved.dshSessions)
+        XCTAssertEqual(configuration.antigravityRoot, resolved.antigravityRoot)
         XCTAssertEqual(configuration.databaseURL, resolved.database)
     }
 
