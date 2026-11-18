@@ -88,7 +88,7 @@ final class SessionStore {
         do {
             sqlite3_busy_timeout(db, 10_000)
             let version = try userVersion()
-            guard version <= 12 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 13 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             try run("PRAGMA journal_mode=WAL")
             try run("PRAGMA foreign_keys=ON")
             try migrate()
@@ -272,7 +272,14 @@ final class SessionStore {
 
     func setMemoryStatus(id: String, status: String) throws {
         guard ["confirmed", "rejected", "candidate"].contains(status) else { throw CaptureError.invalid("Invalid memory status") }
-        try run("UPDATE memories SET status=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [status, id])
+        try run("BEGIN IMMEDIATE")
+        do {
+            if status == "confirmed", try memoryConflicts().contains(where: { $0.candidateID == id }) {
+                throw CaptureError.invalid("Resolve this memory's conflicts before confirming it")
+            }
+            try run("UPDATE memories SET status=? WHERE id=? AND status NOT IN ('checkpoint','superseded')", [status, id])
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
     }
 
     func replaceMemory(_ old: String, with new: String) throws {
@@ -281,13 +288,16 @@ final class SessionStore {
             let valid = try count("""
                 SELECT count(*) FROM memories o JOIN memories n ON n.id=?
                 WHERE o.id=? AND o.status='confirmed' AND n.status='candidate'
-                AND o.kind=n.kind AND o.scope=n.scope
+                AND o.kind=n.kind
                 AND (o.scope='global' OR o.stable_project_id=n.stable_project_id)
-                AND (o.scope!='session' OR (o.agent=n.agent AND o.external_id=n.external_id))
+                AND (o.scope!='session' OR (n.scope='session' AND o.agent=n.agent AND o.external_id=n.external_id))
                 """, [new, old])
             guard valid == 1 else { throw CaptureError.invalid("Memory pair changed or has incompatible scopes") }
+            guard try !memoryConflicts().contains(where: { $0.candidateID == new && $0.confirmedID != old }) else {
+                throw CaptureError.invalid("Review the other conflicts before replacing this memory")
+            }
             try run("UPDATE memories SET status='superseded' WHERE id=?", [old])
-            try run("UPDATE memories SET status='confirmed' WHERE id=?", [new])
+            try run("UPDATE memories SET status='confirmed',scope=(SELECT scope FROM memories WHERE id=?) WHERE id=?", [old,new])
             try run("INSERT INTO memory_replacements VALUES(?,?,unixepoch())", [old,new])
             try run("COMMIT")
         } catch { try? run("ROLLBACK"); throw error }
@@ -486,7 +496,7 @@ final class SessionStore {
         try run("BEGIN IMMEDIATE")
         do {
             let version = try userVersion()
-            guard version <= 12 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
+            guard version <= 13 else { throw CaptureError.invalid("Database schema version \(version) is newer than this application supports.") }
             if version < 2 {
                 if try columns("sessions").contains("payload") { try migratePayload() }
                 try createSchema()
@@ -567,6 +577,11 @@ final class SessionStore {
                 try run("CREATE TABLE IF NOT EXISTS semantic_watch(agent TEXT, external_id TEXT, endpoint TEXT NOT NULL, model TEXT NOT NULL, dirty INTEGER DEFAULT 1, revision INTEGER DEFAULT 0, failures INTEGER DEFAULT 0, retry_at INTEGER DEFAULT 0, PRIMARY KEY(agent,external_id))")
                 try run("CREATE TABLE IF NOT EXISTS memory_replacements(old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL, changed_at INTEGER NOT NULL)")
                 try run("PRAGMA user_version = 12")
+            }
+            if version < 13 {
+                try run("CREATE TABLE IF NOT EXISTS memory_conflicts(candidate_id TEXT NOT NULL, confirmed_id TEXT NOT NULL, reason TEXT NOT NULL, relation TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(candidate_id,confirmed_id))")
+                try run("CREATE TABLE IF NOT EXISTS memory_conflict_checks(digest TEXT PRIMARY KEY NOT NULL)")
+                try run("PRAGMA user_version = 13")
             }
             try run("COMMIT")
         } catch { try? run("ROLLBACK"); throw error }
@@ -693,4 +708,55 @@ final class SessionStore {
         }
     }
     private func error() -> CaptureError { .invalid(String(cString: sqlite3_errmsg(db))) }
+}
+
+
+extension SessionStore {
+    func conflictTargets(_ candidate: ProjectMemory) throws -> [ProjectMemory] {
+        try rows("""
+            SELECT kind,agent,external_id,content,updated_at,stable_project_id,id,status,source_message_id,scope
+            FROM memories WHERE status='confirmed' AND kind=? AND id!=?
+            AND (scope='global' OR (stable_project_id=? AND
+                (scope='project' OR (scope='session' AND agent=? AND external_id=?))))
+            ORDER BY id
+            """, [candidate.kind,candidate.id,candidate.stableProjectID,candidate.agent,candidate.externalID]).compactMap(Self.memory(from:))
+    }
+
+    func hasConflictCheck(_ digest: String) throws -> Bool {
+        try count("SELECT count(*) FROM memory_conflict_checks WHERE digest=?", [digest]) > 0
+    }
+
+    func memoryConflicts() throws -> [MemoryConflict] {
+        try rows("""
+            SELECT c.candidate_id,c.confirmed_id,c.reason,c.relation FROM memory_conflicts c
+            JOIN memories n ON n.id=c.candidate_id JOIN memories o ON o.id=c.confirmed_id
+            WHERE c.dismissed=0 AND n.status='candidate' AND o.status='confirmed' AND n.kind=o.kind
+            AND (o.scope='global' OR (o.stable_project_id=n.stable_project_id AND
+                (o.scope='project' OR (o.scope='session' AND o.agent=n.agent AND o.external_id=n.external_id))))
+            ORDER BY c.candidate_id,c.confirmed_id
+            """).map { MemoryConflict(candidateID: $0[0]!, confirmedID: $0[1]!, reason: $0[2]!, relation: $0[3]!) }
+    }
+
+    func dismissConflict(_ conflict: MemoryConflict) throws {
+        try run("UPDATE memory_conflicts SET dismissed=1 WHERE candidate_id=? AND confirmed_id=?", [conflict.candidateID,conflict.confirmedID])
+    }
+
+    func saveConflicts(_ conflicts: [MemoryConflict], candidate: ProjectMemory, targets: [ProjectMemory], digest: String) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            let current = try memories(agent: candidate.agent, externalID: candidate.externalID).first { $0.id == candidate.id }
+            let available = try conflictTargets(candidate)
+            guard current == candidate, targets.allSatisfy({ available.contains($0) }) else {
+                throw CaptureError.invalid("Memory changed during conflict review; retry")
+            }
+            for conflict in conflicts {
+                guard conflict.candidateID == candidate.id, targets.contains(where: { $0.id == conflict.confirmedID }) else {
+                    throw CaptureError.invalid("Invalid conflict source")
+                }
+                try run("INSERT INTO memory_conflicts(candidate_id,confirmed_id,reason,relation) VALUES(?,?,?,?) ON CONFLICT(candidate_id,confirmed_id) DO UPDATE SET reason=excluded.reason,relation=excluded.relation", [conflict.candidateID,conflict.confirmedID,conflict.reason,conflict.relation])
+            }
+            try run("INSERT OR IGNORE INTO memory_conflict_checks VALUES(?)", [digest])
+            try run("COMMIT")
+        } catch { try? run("ROLLBACK"); throw error }
+    }
 }

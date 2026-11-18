@@ -74,7 +74,7 @@ extension MemoryModelConfigurationTests {
         let page = try store.semanticPage(id, offset: 0, limit: 40)
         XCTAssertEqual(page.count, 40)
         XCTAssertEqual(try store.semanticPage(id, offset: 40, limit: 40).map(\.id), ["42"])
-        let fields = ["", model.endpoint, model.model] + page.flatMap { [$0.id, $0.role.rawValue, $0.content] }
+        let fields = ["semantic-v2", "", model.endpoint, model.model] + page.flatMap { [$0.id, $0.role.rawValue, $0.content] }
         let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
         try store.saveSemanticMemory(.init(checkpoint: "first batch", candidates: [.init(kind: "decision", content: "previous storage choice", sourceMessageID: page[0].id)]), session: id, expected: page, digest: digest)
         try store.watch(id, model: model)

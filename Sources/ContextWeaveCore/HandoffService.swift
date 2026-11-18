@@ -105,8 +105,8 @@ public actor HandoffService {
         while true {
             try Task.checkCancellation()
             let messages = try store.semanticPage(id, offset: offset, limit: 40)
-            guard !messages.isEmpty else { return }
-            let fields = [prior, model.endpoint, model.model] + messages.flatMap { [$0.id, $0.role.rawValue, $0.content] }
+            guard !messages.isEmpty else { break }
+            let fields = ["semantic-v2", prior, model.endpoint, model.model] + messages.flatMap { [$0.id, $0.role.rawValue, $0.content] }
             let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
             if let cached = try store.cachedCheckpoint(id, offset: offset, digest: digest) {
                 prior = cached
@@ -117,8 +117,9 @@ public actor HandoffService {
             }
             offset += messages.count
             await progress?(offset)
-            if messages.count < 40 { return }
+            if messages.count < 40 { break }
         }
+        try await detectMemoryConflicts(session: id, model: model, apiKey: apiKey, transport: transport)
     }
 
 
@@ -519,6 +520,13 @@ public actor HandoffService {
             if text.count <= remaining { output += text; remaining -= text.count }
             else { output += String(text.prefix(max(0, remaining - 30))) + "\n[section truncated]\n"; remaining = 0 }
         }
+        let conflicts = try store.memoryConflicts()
+        let selectedMemories = try selected.map { try store.memories(agent: $0.id.agent, externalID: $0.id.externalID) } ?? []
+        let pending = conflicts.filter { conflict in selectedMemories.contains { $0.id == conflict.candidateID } }
+        if !pending.isEmpty {
+            add("\n## Memory conflicts awaiting review\nThe selected session has unresolved decisions. Its checkpoint and transcript may describe proposed changes. Ask for review before treating those changes as established decisions.\n")
+            for conflict in pending { add("- " + redactor.redact(conflict.reason) + "\n") }
+        }
         let memories = Self.rankMemories(try store.memories(project: project, limit: 1000), task: task, source: selected?.id).prefix(16)
         if memories.isEmpty {
             add("\n## Memory\nNo compressed memory for this project yet.\n")
@@ -738,4 +746,26 @@ public actor HandoffService {
         }
         return best.values.sorted { $0.path < $1.path }
     }
+}
+
+extension HandoffService {
+    func detectMemoryConflicts(session id: SessionID, model: MemoryModelConfiguration, apiKey: String?, transport: URLSession?) async throws {
+        let candidates = try store.memories(agent: id.agent, externalID: id.externalID).filter { $0.status == "candidate" }
+        for candidate in candidates {
+            let confirmed = try store.conflictTargets(candidate)
+            // Compare all applicable memories, with bounded requests and persistent results.
+            for offset in stride(from: 0, to: confirmed.count, by: 12) {
+                try Task.checkCancellation()
+                let targets = Array(confirmed[offset..<min(offset + 12, confirmed.count)])
+                let fields = ["conflict-v1", model.endpoint, model.model, candidate.id, candidate.scope, candidate.content] + targets.flatMap { [$0.id, $0.scope, $0.content] }
+                let digest = SHA256.hash(data: try JSONEncoder().encode(fields)).map { String(format: "%02x", $0) }.joined()
+                if try store.hasConflictCheck(digest) { continue }
+                let conflicts = try await MemoryConflictClient.compare(candidate, with: targets, configuration: model, apiKey: apiKey, transport: transport)
+                try store.saveConflicts(conflicts, candidate: candidate, targets: targets, digest: digest)
+            }
+        }
+    }
+
+    public func memoryConflicts() throws -> [MemoryConflict] { try store.memoryConflicts() }
+    public func dismissConflict(_ conflict: MemoryConflict) throws { try store.dismissConflict(conflict) }
 }
