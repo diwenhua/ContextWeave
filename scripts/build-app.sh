@@ -52,7 +52,24 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 # Bind Info.plist into the ad-hoc signature so Notification Center can address this bundle.
-codesign --force --sign - "$app_dir"
+if [ -n "${CONTEXTWEAVE_SIGNING_IDENTITY:-}" ]; then
+    sign() {
+        codesign --force --sign "$CONTEXTWEAVE_SIGNING_IDENTITY" --options runtime --timestamp "$1"
+    }
+    sparkle="$app_dir/Contents/Frameworks/Sparkle.framework"
+    sparkle_version="$sparkle/Versions/Current"
+    sign "$app_dir/Contents/MacOS/contextweave-mcp"
+    sign "$sparkle_version/Autoupdate"
+    sign "$sparkle_version/Updater.app"
+    for service in "$sparkle_version"/XPCServices/*.xpc; do
+        sign "$service"
+    done
+    sign "$sparkle"
+    sign "$app_dir"
+    codesign --verify --deep --strict "$app_dir"
+else
+    codesign --force --sign - "$app_dir"
+fi
 # Notify filesystem observers that this existing bundle was rebuilt in place.
 touch "$app_dir"
 printf 'Built %s\n' "$app_dir"

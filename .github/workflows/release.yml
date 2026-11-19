@@ -4,11 +4,17 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      signed:
+        description: Sign and notarize this test DMG
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   package:
     runs-on: macos-15
+    environment: ${{ (github.event_name == 'push' || inputs.signed) && 'macos-release' || 'macos-test' }}
     permissions:
       contents: write
     steps:
@@ -34,14 +40,51 @@ jobs:
           swift build
           swift test
       - name: Build unsigned test package
+        if: github.event_name == 'workflow_dispatch' && !inputs.signed
         env:
           CONTEXTWEAVE_VERSION: ${{ steps.version.outputs.version }}
           CONTEXTWEAVE_BUILD_NUMBER: ${{ github.run_number }}
         run: ./scripts/package-dmg.sh
+      - name: Sign and notarize release package
+        if: github.event_name == 'push' || inputs.signed
+        env:
+          CONTEXTWEAVE_VERSION: ${{ steps.version.outputs.version }}
+          CONTEXTWEAVE_BUILD_NUMBER: ${{ github.run_number }}
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        shell: bash
+        run: |
+          umask 077
+          : "${MACOS_CERTIFICATE_BASE64:?Missing signing certificate}"
+          : "${MACOS_CERTIFICATE_PASSWORD:?Missing certificate password}"
+          : "${APPLE_ID:?Missing Apple ID}"
+          : "${APPLE_TEAM_ID:?Missing Apple team ID}"
+          : "${APPLE_APP_SPECIFIC_PASSWORD:?Missing notarization password}"
+          p12="$RUNNER_TEMP/contextweave.p12"
+          keychain="$RUNNER_TEMP/contextweave.keychain-db"
+          trap 'security delete-keychain "$keychain" || true; rm -f "$p12"' EXIT
+          keychain_password=$(openssl rand -hex 32)
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -P "$MACOS_CERTIFICATE_PASSWORD" -f pkcs12 -k "$keychain" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          export CONTEXTWEAVE_SIGNING_IDENTITY
+          CONTEXTWEAVE_SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$keychain" |
+            awk -v team="($APPLE_TEAM_ID)" '/Developer ID Application:/ && index($0, team) { print $2; exit }')
+          : "${CONTEXTWEAVE_SIGNING_IDENTITY:?No matching Developer ID Application identity}"
+          unset MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD
+          rm -f "$p12"
+          ./scripts/package-dmg.sh
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-macos-package
+          name: ${{ (github.event_name == 'push' || inputs.signed) && 'signed-macos-package' || 'unsigned-macos-package' }}
           path: |
             dist/*.dmg
             dist/*.sha256
@@ -53,4 +96,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/*.dmg dist/*.sha256 \
             --draft --title "$GITHUB_REF_NAME" \
-            --notes 'Development preview: this macOS build is unsigned and not notarized. Gatekeeper may block it. This draft requires review before publication.'
+            --notes 'This macOS package is signed with Developer ID and notarized by Apple. This draft requires review before publication.'
