@@ -1,0 +1,27 @@
+name: Publish Sparkle feed
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft)
+    runs-on: macos-15
+    environment: macos-release
+    concurrency:
+      group: sparkle-public-feed
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Publish signed appcast for the latest stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: ./scripts/publish-sparkle-feed.sh

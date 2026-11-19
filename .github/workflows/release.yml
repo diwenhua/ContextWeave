@@ -50,6 +50,7 @@ jobs:
       - name: Sign DMG and submit to Apple
         if: github.event_name == 'push' || inputs.signed
         env:
+          CONTEXTWEAVE_PUBLIC_UPDATES: ${{ github.event_name == 'push' && '1' || '0' }}
           CONTEXTWEAVE_VERSION: ${{ steps.version.outputs.version }}
           CONTEXTWEAVE_BUILD_NUMBER: ${{ github.run_number }}
           MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
