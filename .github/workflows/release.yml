@@ -6,17 +6,19 @@ on:
   workflow_dispatch:
     inputs:
       signed:
-        description: Sign and notarize this test DMG
+        description: Sign and submit a test DMG to Apple
         type: boolean
         default: false
+      resume_run_id:
+        description: Original submission run ID (leave blank to build a new DMG)
+        type: string
 permissions:
   contents: read
 jobs:
   package:
+    if: github.event_name == 'push' || (github.ref == 'refs/heads/main' && inputs.resume_run_id == '')
     runs-on: macos-15
     environment: ${{ (github.event_name == 'push' || inputs.signed) && 'macos-release' || 'macos-test' }}
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,7 +47,7 @@ jobs:
           CONTEXTWEAVE_VERSION: ${{ steps.version.outputs.version }}
           CONTEXTWEAVE_BUILD_NUMBER: ${{ github.run_number }}
         run: ./scripts/package-dmg.sh
-      - name: Sign and notarize release package
+      - name: Sign DMG and submit to Apple
         if: github.event_name == 'push' || inputs.signed
         env:
           CONTEXTWEAVE_VERSION: ${{ steps.version.outputs.version }}
@@ -81,19 +83,110 @@ jobs:
           unset MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD
           rm -f "$p12"
           ./scripts/package-dmg.sh
-      - name: Upload workflow artifact
+          printf '%s\n' "$GITHUB_REF_NAME" > dist/notarization-pending/source-ref
+          {
+            echo '### DMG submitted to Apple'
+            printf 'Submission ID: `%s`\n\n' "$(cat dist/notarization-pending/submission-id)"
+            printf 'Run this workflow on main with resume_run_id set to `%s`.\n' "$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload unsigned test package
+        if: github.event_name == 'workflow_dispatch' && !inputs.signed
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ (github.event_name == 'push' || inputs.signed) && 'signed-macos-package' || 'unsigned-macos-package' }}
+          name: unsigned-macos-package
           path: |
             dist/*.dmg
             dist/*.sha256
           if-no-files-found: error
-      - name: Create draft release
-        if: github.event_name == 'push'
+      - name: Preserve signed DMG and submission ID
+        if: github.event_name == 'push' || inputs.signed
+        uses: actions/upload-artifact@v4
+        with:
+          name: notarization-pending
+          path: dist/notarization-pending/
+          if-no-files-found: error
+
+  resume:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.resume_run_id != ''
+    runs-on: macos-15
+    environment: macos-release
+    concurrency:
+      group: notarization-resume-${{ inputs.resume_run_id }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate source run and fetch original DMG
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.resume_run_id }}
+        shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.dmg dist/*.sha256 \
-            --draft --title "$GITHUB_REF_NAME" \
+          if [[ ! "$SOURCE_RUN" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'Enter the numeric run ID from the original submission URL.' >&2
+            exit 1
+          fi
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN")
+          jq -e --arg repository "$GITHUB_REPOSITORY" '
+            .path == ".github/workflows/release.yml"
+            and .head_repository.full_name == $repository
+            and .conclusion == "success"
+            and (.event == "push" or (.event == "workflow_dispatch" and .head_branch == "main"))
+          ' <<< "$run" > /dev/null
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name notarization-pending --dir pending
+          if [[ "$(jq -r .event <<< "$run")" == push ]]; then
+            tag=$(cat pending/source-ref)
+            if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo 'Expected a stable release tag in the source artifact.' >&2
+              exit 1
+            fi
+            sha=$(jq -r .head_sha <<< "$run")
+            [[ "$(git rev-parse --verify "refs/tags/$tag^{commit}")" == "$sha" ]]
+            git merge-base --is-ancestor "$sha" "$GITHUB_SHA"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check Apple status and staple if accepted
+        id: finish
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SOURCE_RUN: ${{ inputs.resume_run_id }}
+        shell: bash
+        run: |
+          ./scripts/resume-notarization.sh pending dist/final
+          if compgen -G 'dist/final/*.sha256' > /dev/null; then
+            echo 'accepted=true' >> "$GITHUB_OUTPUT"
+            echo '### Apple accepted the DMG and its ticket was verified' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '### Apple is still reviewing the DMG\n\nResume again with run ID `%s`.\n' "$SOURCE_RUN" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload notarized DMG
+        if: steps.finish.outputs.accepted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-macos-package
+          path: |
+            dist/final/*.dmg
+            dist/final/*.sha256
+          if-no-files-found: error
+      - name: Create draft release for the original tag
+        if: steps.finish.outputs.accepted == 'true' && steps.source.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists. The notarized DMG is available as a workflow artifact."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" dist/final/*.dmg dist/final/*.sha256 \
+            --draft --verify-tag --title "$RELEASE_TAG" \
             --notes 'This macOS package is signed with Developer ID and notarized by Apple. This draft requires review before publication.'

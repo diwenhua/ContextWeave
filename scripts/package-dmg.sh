@@ -17,27 +17,25 @@ if [ -n "${CONTEXTWEAVE_SIGNING_IDENTITY:-}" ]; then
     suffix=
 fi
 output="$PWD/dist/ContextWeave-${version}-macOS-${arch}${suffix}.dmg"
+pending="$PWD/dist/notarization-pending"
 if [ -e "$output" ]; then echo "Refusing to overwrite $output" >&2; exit 1; fi
+if [ -z "$suffix" ] && [ -e "$pending" ]; then
+    echo "A pending notarization bundle already exists at $pending" >&2
+    exit 1
+fi
 hdiutil create -volname "ContextWeave" -srcfolder "$staging" -format UDZO "$output"
 if [ -n "${CONTEXTWEAVE_SIGNING_IDENTITY:-}" ]; then
     codesign --sign "$CONTEXTWEAVE_SIGNING_IDENTITY" --timestamp "$output"
     codesign --verify --strict "$output"
-    if ! xcrun notarytool submit "$output" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-        --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --timeout 20m --output-format json \
-        > "$staging/notary.json"; then
-        cat "$staging/notary.json" >&2
-        exit 1
-    fi
-    cat "$staging/notary.json"
-    status=$(plutil -extract status raw "$staging/notary.json")
-    if [ "$status" != Accepted ]; then
-        submission=$(plutil -extract id raw "$staging/notary.json")
-        xcrun notarytool log "$submission" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" >&2
-        exit 1
-    fi
-    xcrun stapler staple "$output"
-    xcrun stapler validate "$output"
+    xcrun notarytool submit "$output" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+        --password "$APPLE_APP_SPECIFIC_PASSWORD" --output-format json > "$staging/notary.json"
+    submission=$(plutil -extract id raw "$staging/notary.json")
+    printf 'Apple notarization submission: %s\n' "$submission"
+    mkdir "$pending"
+    shasum -a 256 "$output" | cut -d ' ' -f 1 > "$pending/dmg.sha256"
+    printf '%s\n' "$submission" > "$pending/submission-id"
+    mv "$output" "$pending/"
+else
+    (cd dist && shasum -a 256 "$(basename "$output")" > "$(basename "$output").sha256")
+    printf 'Created development disk image: %s\n' "$output"
 fi
-(cd dist && shasum -a 256 "$(basename "$output")" > "$(basename "$output").sha256")
-printf 'Created disk image: %s\n' "$output"
