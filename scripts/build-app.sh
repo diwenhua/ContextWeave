@@ -56,7 +56,7 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
 <key>SUFeedURL</key><string>$feed_url</string>
 <key>SUPublicEDKey</key><string>$update_key</string>
 <key>SUEnableAutomaticChecks</key><false/>
-<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+$update_settings
 </dict></plist>
 PLIST
 # Bind Info.plist into the ad-hoc signature so Notification Center can address this bundle.
