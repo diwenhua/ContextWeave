@@ -5,6 +5,14 @@ version=${CONTEXTWEAVE_VERSION:-0.1.0}
 build_number=${CONTEXTWEAVE_BUILD_NUMBER:-1}
 case "$version" in *[!0-9.]*|'') echo "Invalid version" >&2; exit 1;; esac
 case "$build_number" in *[!0-9]*|'') echo "Invalid build number" >&2; exit 1;; esac
+feed_url=http://127.0.0.1:8765/appcast.xml
+update_key=pwOAK2xEkG20mV+hUoDC69S+fb5gryk8oEqHg9ZPvgM=
+update_settings='<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>'
+if [ "${CONTEXTWEAVE_PUBLIC_UPDATES:-0}" = 1 ]; then
+    feed_url=https://raw.githubusercontent.com/diwenhua/ContextWeave/sparkle-feed/appcast.xml
+    update_key=Dkwkh5HfO34aRNe4yfamfA9F2WzK1joV3WT5eomzUic=
+    update_settings='<key>SURequireSignedFeed</key><true/>'
+fi
 ./scripts/swift-local.sh build -c release --product ContextWeave
 ./scripts/swift-local.sh build -c release --product contextweave-mcp
 binary_path=$(./scripts/swift-local.sh build -c release --show-bin-path)
@@ -45,8 +53,8 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
 <key>CFBundleVersion</key><string>$build_number</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>SUFeedURL</key><string>http://127.0.0.1:8765/appcast.xml</string>
-<key>SUPublicEDKey</key><string>pwOAK2xEkG20mV+hUoDC69S+fb5gryk8oEqHg9ZPvgM=</string>
+<key>SUFeedURL</key><string>$feed_url</string>
+<key>SUPublicEDKey</key><string>$update_key</string>
 <key>SUEnableAutomaticChecks</key><false/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
