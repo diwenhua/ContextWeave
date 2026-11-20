@@ -11,7 +11,8 @@ update_settings='<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetwor
 if [ "${CONTEXTWEAVE_PUBLIC_UPDATES:-0}" = 1 ]; then
     feed_url=https://raw.githubusercontent.com/diwenhua/ContextWeave/sparkle-feed/appcast.xml
     update_key=Dkwkh5HfO34aRNe4yfamfA9F2WzK1joV3WT5eomzUic=
-    update_settings='<key>SURequireSignedFeed</key><true/>'
+    update_settings='<key>SURequireSignedFeed</key><true/>
+<key>SUVerifyUpdateBeforeExtraction</key><true/>'
 fi
 ./scripts/swift-local.sh build -c release --product ContextWeave
 ./scripts/swift-local.sh build -c release --product contextweave-mcp

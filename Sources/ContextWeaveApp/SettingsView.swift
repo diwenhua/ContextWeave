@@ -753,7 +753,6 @@ private struct AppearanceSettingsView: View {
 
 private struct AboutSettingsView: View {
     @EnvironmentObject private var updates: UpdateController
-    @EnvironmentObject private var store: SettingsStore
 
     private var version: String {
         let info = Bundle.main.infoDictionary
@@ -808,25 +807,13 @@ private struct AboutSettingsView: View {
                         }
                     }
                     Divider()
-                    infoRow(String(localized: "settings.about.helper", bundle: .appResources), AppPaths.helperExecutable, monospaced: true)
-                    infoRow(String(localized: "settings.about.database", bundle: .appResources), AppPaths.abbreviate(store.settings.resolvedPaths().database.path), monospaced: true)
-                    infoRow(String(localized: "settings.about.settingsFile", bundle: .appResources), AppPaths.abbreviate(AppPaths.settingsURL.path), monospaced: true)
-                    infoRow(String(localized: "settings.about.license", bundle: .appResources), "MIT")
+                    LabeledContent(String(localized: "settings.about.license", bundle: .appResources), value: "MIT").font(.caption)
                 }
                 .padding(8)
             }
         }
     }
 
-    private func infoRow(_ label: String, _ value: String, monospaced: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
-            Text(value)
-                .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
-                .textSelection(.enabled)
-            Spacer(minLength: 0)
-        }
-    }
 }
 
 // MARK: - Shared pieces

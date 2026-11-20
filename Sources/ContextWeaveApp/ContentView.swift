@@ -893,17 +893,12 @@ private struct AppRail: View {
             }
             .padding(.top, 10)
             Spacer(minLength: 0)
-            Button {
-                SettingsWindow.open()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(isHoveringSettings ? Weave.thread.opacity(0.16) : Color.clear)
-                    )
+            Group {
+                if #available(macOS 14, *) {
+                    SettingsLink { settingsIcon }
+                } else {
+                    Button(action: SettingsWindow.open) { settingsIcon }
+                }
             }
             .buttonStyle(.plain)
             .foregroundStyle(isHoveringSettings ? Weave.thread : Weave.muted)
@@ -916,6 +911,17 @@ private struct AppRail: View {
         .frame(maxHeight: .infinity)
         .background(Weave.sidebar)
         .overlay(alignment: .trailing) { Rectangle().fill(Weave.line).frame(width: 1) }
+    }
+
+    private var settingsIcon: some View {
+        Image(systemName: "gearshape")
+            .font(.system(size: 16, weight: .medium))
+            .frame(width: 34, height: 34)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isHoveringSettings ? Weave.thread.opacity(0.16) : Color.clear)
+            )
     }
 }
 

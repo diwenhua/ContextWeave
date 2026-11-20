@@ -4,6 +4,15 @@ cd "$(dirname "$0")/.."
 version=${CONTEXTWEAVE_VERSION:-0.1.0}
 case "$version" in *[!0-9.]*|'') echo "Invalid version" >&2; exit 1;; esac
 ./scripts/build-app.sh
+if [ "${CONTEXTWEAVE_PUBLIC_UPDATES:-0}" = 1 ]; then
+    plist=dist/ContextWeave.app/Contents/Info.plist
+    for key in SURequireSignedFeed SUVerifyUpdateBeforeExtraction; do
+        [ "$(plutil -extract "$key" raw "$plist")" = true ] || {
+            echo "Public updates require $key in the packaged app" >&2
+            exit 1
+        }
+    done
+fi
 arch=$(uname -m)
 case "$arch" in arm64|x86_64) ;; *) echo "Unsupported architecture: $arch" >&2; exit 1;; esac
 staging=$(mktemp -d "${TMPDIR:-/tmp}/contextweave-dmg.XXXXXX")

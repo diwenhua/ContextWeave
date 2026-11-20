@@ -2,6 +2,20 @@ import XCTest
 @testable import ContextWeaveCore
 
 final class AgentIntegrationTests: XCTestCase {
+    func testCodexProjectPathDoesNotCountAsServerRegistration() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appendingPathComponent("config.toml")
+        let original = "# contextweave project\n[projects.\"/tmp/contextweave\"]\ntrust_level = \"trusted\"\n"
+        try original.write(to: config, atomically: true, encoding: .utf8)
+        XCTAssertEqual(AgentIntegration.status(codexHome: home, dshHome: home).first?.state, .notConfigured)
+        _ = try AgentIntegration.configure(agent: "codex", executable: "/usr/bin/true", home: home)
+        XCTAssertEqual(AgentIntegration.status(codexHome: home, dshHome: home).first?.state, .connected)
+        _ = try AgentIntegration.configure(agent: "codex", executable: nil, home: home)
+        XCTAssertEqual(try String(contentsOf: config, encoding: .utf8), original)
+    }
+
     func testIndividualConfigurationIsolatedFromOtherAgentConflict() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
