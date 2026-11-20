@@ -1,3 +1,4 @@
+import CZstandard
 import Foundation
 import Darwin
 
@@ -53,10 +54,48 @@ public enum ZstandardLog {
     }
 
     private static func decodeFrames(_ prefix: Data) throws -> String {
-        let candidates = [ProcessInfo.processInfo.environment["CONTEXTWEAVE_ZSTD"], "/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"].compactMap { $0 }
-        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw CaptureError.invalid("DeepSeek Harness compressed logs require zstd. Install with brew install zstd, or set CONTEXTWEAVE_ZSTD.")
+        let environment = ProcessInfo.processInfo.environment
+        let configuredTimeout = environment["CONTEXTWEAVE_ZSTD_TIMEOUT_SECONDS"].flatMap(Int.init) ?? 30
+        let timeout = min(max(configuredTimeout, 1), 120)
+        if let executable = environment["CONTEXTWEAVE_ZSTD"], FileManager.default.isExecutableFile(atPath: executable) {
+            return try decodeWithExecutable(executable, prefix: prefix, timeout: timeout)
         }
+
+        guard let decoder = ZSTD_createDCtx() else {
+            throw CaptureError.invalid("Cannot allocate Zstandard decoder")
+        }
+        defer { ZSTD_freeDCtx(decoder) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        var chunk = [UInt8](repeating: 0, count: ZSTD_DStreamOutSize())
+        var decoded = Data()
+        try prefix.withUnsafeBytes { source in
+            var input = ZSTD_inBuffer(src: source.baseAddress, size: source.count, pos: 0)
+            while true {
+                let result = chunk.withUnsafeMutableBytes { buffer in
+                    var output = ZSTD_outBuffer(dst: buffer.baseAddress, size: buffer.count, pos: 0)
+                    let remaining = ZSTD_decompressStream(decoder, &output, &input)
+                    decoded.append(contentsOf: buffer.prefix(output.pos))
+                    return (remaining, output.pos)
+                }
+                guard ZSTD_isError(result.0) == 0 else {
+                    throw CaptureError.invalid("Zstandard decoding failed: \(String(cString: ZSTD_getErrorName(result.0)))")
+                }
+                guard ContinuousClock.now < deadline else {
+                    throw CaptureError.invalid("Zstandard decoder timed out")
+                }
+                if input.pos == input.size {
+                    if result.0 == 0 { break }
+                    guard result.1 > 0 else { throw CaptureError.invalid("Incomplete Zstandard frame") }
+                }
+            }
+        }
+        guard let text = String(data: decoded, encoding: .utf8) else {
+            throw CaptureError.invalid("Zstandard decoding failed")
+        }
+        return text
+    }
+
+    private static func decodeWithExecutable(_ executable: String, prefix: Data, timeout: Int) throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -76,8 +115,6 @@ public enum ZstandardLog {
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { _ in finished.signal() }
         try process.run()
-        let configured = ProcessInfo.processInfo.environment["CONTEXTWEAVE_ZSTD_TIMEOUT_SECONDS"].flatMap(Int.init) ?? 30
-        let timeout = min(max(configured, 1), 120)
         if finished.wait(timeout: .now() + .seconds(timeout)) == .timedOut {
             // The child cannot be allowed to occupy a scan indefinitely. Use the process
             // identifier only while Foundation still considers this exact child running.

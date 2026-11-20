@@ -15,7 +15,8 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(name: "CSQLite"),
-        .target(name: "ContextWeaveCore", dependencies: ["CSQLite"]),
+        .target(name: "CZstandard", exclude: ["LICENSE", "README.md"]),
+        .target(name: "ContextWeaveCore", dependencies: ["CSQLite", "CZstandard"]),
         .executableTarget(name: "ContextWeaveMCP", dependencies: ["ContextWeaveCore"]),
         .executableTarget(name: "ContextWeaveApp", dependencies: ["ContextWeaveCore", .product(name: "Sparkle", package: "Sparkle")], resources: [.process("Resources")], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
         .testTarget(name: "ContextWeaveCoreTests", dependencies: ["ContextWeaveCore"])

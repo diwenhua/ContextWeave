@@ -34,6 +34,7 @@ install_binary() {
 install_binary "$binary_path/ContextWeave" "ContextWeave"
 install_binary "$binary_path/contextweave-mcp" "contextweave-mcp"
 mkdir -p "$app_dir/Contents/Resources"
+cp Sources/CZstandard/LICENSE "$app_dir/Contents/Resources/Zstandard-LICENSE.txt"
 ./scripts/build-icon.sh
 cp "$PWD/.build/icon-assets/ContextWeave.icns" "$app_dir/Contents/Resources/ContextWeave.icns"
 cp -R "$binary_path/ContextWeave_ContextWeaveApp.bundle" "$app_dir/Contents/Resources/"

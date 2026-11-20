@@ -218,9 +218,7 @@ final class HandoffTests: XCTestCase {
         XCTAssertEqual(try ZstandardLog.completePrefix(first + second), first + second)
         for count in 1..<second.count { XCTAssertEqual(try ZstandardLog.completePrefix(first + second.prefix(count)), first) }
         XCTAssertThrowsError(try ZstandardLog.completePrefix(Data([1, 2, 3, 4, 5])))
-        if FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/zstd") || FileManager.default.isExecutableFile(atPath: "/usr/local/bin/zstd") {
-            XCTAssertEqual(try ZstandardLog.decode(first + second), "header\nevent\n")
-        }
+        XCTAssertEqual(try ZstandardLog.decode(first + second), "header\nevent\n")
     }
     func testBidirectionalHandoffPersistenceIsolationAndAppend() async throws {
         let root = try directory(), cRoot = root.appendingPathComponent("codex"), dRoot = root.appendingPathComponent("dsh")
@@ -355,8 +353,6 @@ final class HandoffTests: XCTestCase {
         XCTAssertEqual(migrated.map(\.title), ["Legacy hello"])
     }
     func testHarnessFramesResumeAfterAPartialFrame() async throws {
-        let zstd = ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"].contains { FileManager.default.isExecutableFile(atPath: $0) }
-        try XCTSkipUnless(zstd, "zstd is required to decode Harness frames")
         func frame(_ text: String) -> Data {
             let payload = Data(text.utf8), header = (payload.count << 3) | 1
             return Data([0x28, 0xb5, 0x2f, 0xfd, 0x20, UInt8(payload.count), UInt8(header & 255), UInt8((header >> 8) & 255), 0]) + payload

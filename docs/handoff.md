@@ -4,7 +4,7 @@ ContextWeave captures local sessions and provides one shared MCP service executa
 
 ## Build and connect
 
-Requires macOS 13+, Swift 6, and `zstd` for Harness's default compressed logs (`brew install zstd`). No model API, Node runtime, or remote service is required by ContextWeave.
+Requires macOS 13+ and Swift 6 for source builds. ContextWeave includes a Zstandard decoder for DeepSeek Harness logs. No model API, Node runtime, or remote service is required by ContextWeave.
 
 ```sh
 ./scripts/build-app.sh
