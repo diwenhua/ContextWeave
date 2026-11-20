@@ -11,9 +11,9 @@ enum MainTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .sessions: String(localized: "tab.sessions", bundle: .module)
-        case .memory: String(localized: "tab.memory", bundle: .module)
-        case .archived: String(localized: "tab.archived", bundle: .module)
+        case .sessions: String(localized: "tab.sessions", bundle: .appResources)
+        case .memory: String(localized: "tab.memory", bundle: .appResources)
+        case .archived: String(localized: "tab.archived", bundle: .appResources)
         }
     }
 

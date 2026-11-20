@@ -53,11 +53,11 @@ struct SettingsView: View {
 
         var title: String {
             switch self {
-            case .agents: String(localized: "settings.section.agents", bundle: .module)
-            case .capture: String(localized: "settings.section.capture", bundle: .module)
-            case .memoryModel: String(localized: "settings.section.memoryModel", bundle: .module)
-            case .appearance: String(localized: "settings.section.appearance", bundle: .module)
-            case .about: String(localized: "settings.section.about", bundle: .module)
+            case .agents: String(localized: "settings.section.agents", bundle: .appResources)
+            case .capture: String(localized: "settings.section.capture", bundle: .appResources)
+            case .memoryModel: String(localized: "settings.section.memoryModel", bundle: .appResources)
+            case .appearance: String(localized: "settings.section.appearance", bundle: .appResources)
+            case .about: String(localized: "settings.section.about", bundle: .appResources)
             }
         }
 
@@ -87,43 +87,43 @@ private struct MemoryModelSettingsView: View {
     private var configuration: MemoryModelConfiguration { MemoryModelConfiguration(endpoint: endpoint, model: modelName) }
 
     var body: some View {
-        SettingsPage(title: String(localized: "settings.section.memoryModel", bundle: .module), subtitle: String(localized: "settings.model.intro", bundle: .module)) {
+        SettingsPage(title: String(localized: "settings.section.memoryModel", bundle: .appResources), subtitle: String(localized: "settings.model.intro", bundle: .appResources)) {
             GroupBox {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
-                        Text("settings.model.presets", bundle: .module)
+                        Text("settings.model.presets", bundle: .appResources)
                         Spacer()
                         Button("DeepSeek") { endpoint = "https://api.deepseek.com/chat/completions"; checkKey() }
                         Button("OpenAI") { endpoint = "https://api.openai.com/v1/chat/completions"; checkKey() }
                     }
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("settings.model.endpoint", bundle: .module).font(.caption.weight(.semibold))
+                        Text("settings.model.endpoint", bundle: .appResources).font(.caption.weight(.semibold))
                         TextField("https://…/chat/completions", text: $endpoint).textFieldStyle(.roundedBorder)
                     }
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("settings.model.name", bundle: .module).font(.caption.weight(.semibold))
-                        TextField(String(localized: "settings.model.nameHint", bundle: .module), text: $modelName).textFieldStyle(.roundedBorder)
+                        Text("settings.model.name", bundle: .appResources).font(.caption.weight(.semibold))
+                        TextField(String(localized: "settings.model.nameHint", bundle: .appResources), text: $modelName).textFieldStyle(.roundedBorder)
                     }
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
                             Text("API Key").font(.caption.weight(.semibold))
                             Spacer()
-                            Text(hasKey ? "settings.model.keySaved" : "settings.model.keyMissing", bundle: .module).font(.caption).foregroundStyle(.secondary)
+                            Text(hasKey ? "settings.model.keySaved" : "settings.model.keyMissing", bundle: .appResources).font(.caption).foregroundStyle(.secondary)
                         }
-                        SecureField(String(localized: "settings.model.keyHint", bundle: .module), text: $apiKey).textFieldStyle(.roundedBorder)
+                        SecureField(String(localized: "settings.model.keyHint", bundle: .appResources), text: $apiKey).textFieldStyle(.roundedBorder)
                     }
-                    Text("settings.model.privacy", bundle: .module).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text("settings.model.privacy", bundle: .appResources).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
             HStack {
-                Button(String(localized: "settings.model.save", bundle: .module)) { save() }.buttonStyle(.borderedProminent)
-                Button(String(localized: "settings.model.test", bundle: .module)) { test() }.disabled(testing)
-                Button(String(localized: "settings.model.removeKey", bundle: .module)) { removeKey() }.disabled(!hasKey)
+                Button(String(localized: "settings.model.save", bundle: .appResources)) { save() }.buttonStyle(.borderedProminent)
+                Button(String(localized: "settings.model.test", bundle: .appResources)) { test() }.disabled(testing)
+                Button(String(localized: "settings.model.removeKey", bundle: .appResources)) { removeKey() }.disabled(!hasKey)
                 if testing { ProgressView().controlSize(.small) }
                 Spacer()
             }
-            Text("settings.model.testHint", bundle: .module).font(.caption).foregroundStyle(.secondary)
-            Text("settings.model.notIntegrated", bundle: .module).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("settings.model.testHint", bundle: .appResources).font(.caption).foregroundStyle(.secondary)
+            Text("settings.model.notIntegrated", bundle: .appResources).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let feedback { Text(feedback).font(.callout).textSelection(.enabled) }
         }
         .onAppear { endpoint = store.settings.memoryModel.endpoint; modelName = store.settings.memoryModel.model; checkKey() }
@@ -142,11 +142,11 @@ private struct MemoryModelSettingsView: View {
             let value = configuration
             store.update { $0.memoryModel = value }
             checkKey()
-            feedback = String(localized: "settings.model.saved", bundle: .module)
+            feedback = String(localized: "settings.model.saved", bundle: .appResources)
         } catch { feedback = error.localizedDescription }
     }
     private func removeKey() {
-        do { try MemoryModelKeychain.remove(endpoint: configuration.validatedEndpoint()); apiKey = ""; hasKey = false; feedback = String(localized: "settings.model.removed", bundle: .module) }
+        do { try MemoryModelKeychain.remove(endpoint: configuration.validatedEndpoint()); apiKey = ""; hasKey = false; feedback = String(localized: "settings.model.removed", bundle: .appResources) }
         catch { feedback = error.localizedDescription }
     }
     private func test() {
@@ -158,7 +158,7 @@ private struct MemoryModelSettingsView: View {
                 let url = try current.validatedEndpoint()
                 let key = typedKey.isEmpty ? try MemoryModelKeychain.load(endpoint: url) : typedKey
                 try await MemoryModelConnection.test(configuration: current, apiKey: key)
-                feedback = String(localized: "settings.model.success", bundle: .module)
+                feedback = String(localized: "settings.model.success", bundle: .appResources)
             } catch { feedback = error.localizedDescription }
         }
     }
@@ -187,20 +187,20 @@ private struct AgentsSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: String(localized: "settings.section.agents", bundle: .module),
-            subtitle: String(localized: "settings.agents.intro", bundle: .module)
+            title: String(localized: "settings.section.agents", bundle: .appResources),
+            subtitle: String(localized: "settings.agents.intro", bundle: .appResources)
         ) {
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker(String(localized: "settings.agents.memoryThreshold", bundle: .module), selection: Binding(
+                    Picker(String(localized: "settings.agents.memoryThreshold", bundle: .appResources), selection: Binding(
                         get: { store.settings.memoryAutoUpdateMessageThreshold },
                         set: { value in store.update { $0.memoryAutoUpdateMessageThreshold = value } }
                     )) {
                         ForEach(AppSettings.memoryMessageThresholdChoices, id: \.self) { count in
-                            Text(String(format: String(localized: "settings.agents.memoryThresholdCount", bundle: .module), count)).tag(count)
+                            Text(String(format: String(localized: "settings.agents.memoryThresholdCount", bundle: .appResources), count)).tag(count)
                         }
                     }
-                    Text("settings.agents.memoryThresholdHint", bundle: .module)
+                    Text("settings.agents.memoryThresholdHint", bundle: .appResources)
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -215,7 +215,7 @@ private struct AgentsSettingsView: View {
                     if statuses.isEmpty {
                         HStack {
                             ProgressView().controlSize(.small)
-                            Text("settings.agents.checking", bundle: .module).font(.caption).foregroundStyle(.secondary)
+                            Text("settings.agents.checking", bundle: .appResources).font(.caption).foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
@@ -225,12 +225,12 @@ private struct AgentsSettingsView: View {
             }
 
             HStack {
-                Button(String(localized: "settings.agents.configureDetected", bundle: .module)) {
+                Button(String(localized: "settings.agents.configureDetected", bundle: .appResources)) {
                     configure(agents: statuses.filter { detectedAgents.contains($0.agent) }.map(\.agent))
                 }
                     .buttonStyle(.borderedProminent)
                     .disabled(!helperAvailable || detectedAgents.isEmpty)
-                Button(String(localized: "settings.agents.remove", bundle: .module)) {
+                Button(String(localized: "settings.agents.remove", bundle: .appResources)) {
                     removalAgent = nil
                     confirmRemoval = true
                 }
@@ -241,17 +241,17 @@ private struct AgentsSettingsView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .help(Text("settings.agents.refresh", bundle: .module))
+                .help(Text("settings.agents.refresh", bundle: .appResources))
             }
 
-            Text("settings.agents.restartHint", bundle: .module)
+            Text("settings.agents.restartHint", bundle: .appResources)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if !helperAvailable {
                 Label(
-                    String(format: String(localized: "settings.agents.helperUnavailable", bundle: .module), currentHelper),
+                    String(format: String(localized: "settings.agents.helperUnavailable", bundle: .appResources), currentHelper),
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
@@ -259,36 +259,36 @@ private struct AgentsSettingsView: View {
                 .textSelection(.enabled)
             }
 
-            Text(String(format: String(localized: "settings.agents.helper", bundle: .module), currentHelper))
+            Text(String(format: String(localized: "settings.agents.helper", bundle: .appResources), currentHelper))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 
             DisclosureGroup(isExpanded: $showSnippets) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("settings.agents.manualHint", bundle: .module)
+                    Text("settings.agents.manualHint", bundle: .appResources)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(String(format: String(localized: "settings.agents.codexPath", bundle: .module), AppPaths.codexHome.appendingPathComponent("config.toml").path))
+                    Text(String(format: String(localized: "settings.agents.codexPath", bundle: .appResources), AppPaths.codexHome.appendingPathComponent("config.toml").path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.codexSnippet(executable: currentHelper))
-                    Text(String(format: String(localized: "settings.agents.dshPath", bundle: .module), AppPaths.dshHome.appendingPathComponent("cordis.patch.yml").path))
+                    Text(String(format: String(localized: "settings.agents.dshPath", bundle: .appResources), AppPaths.dshHome.appendingPathComponent("cordis.patch.yml").path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.dshSnippet(executable: currentHelper))
-                    Text(String(format: String(localized: "settings.agents.cursorPath", bundle: .module), AppPaths.cursorHome.appendingPathComponent("mcp.json").path))
+                    Text(String(format: String(localized: "settings.agents.cursorPath", bundle: .appResources), AppPaths.cursorHome.appendingPathComponent("mcp.json").path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.cursorSnippet(executable: currentHelper))
-                    Text(String(format: String(localized: "settings.agents.antigravityPath", bundle: .module), AppPaths.antigravityConfigHome.appendingPathComponent("mcp_config.json").path))
+                    Text(String(format: String(localized: "settings.agents.antigravityPath", bundle: .appResources), AppPaths.antigravityConfigHome.appendingPathComponent("mcp_config.json").path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.antigravitySnippet(executable: currentHelper))
-                    Text(String(format: String(localized: "settings.agents.claudePath", bundle: .module), ClaudePaths().configuration.path))
+                    Text(String(format: String(localized: "settings.agents.claudePath", bundle: .appResources), ClaudePaths().configuration.path))
                         .font(.caption.bold())
                     snippet(AgentIntegration.claudeSnippet(executable: currentHelper))
                 }
                 .padding(.top, 8)
             } label: {
-                Text("settings.agents.manual", bundle: .module)
+                Text("settings.agents.manual", bundle: .appResources)
             }
 
             if let feedback {
@@ -302,17 +302,17 @@ private struct AgentsSettingsView: View {
         .onAppear { refresh() }
         .confirmationDialog(
             Text(removalAgent.map {
-                String(format: String(localized: "settings.agents.removeOneTitle", bundle: .module), HandoffModel.agentName($0))
-            } ?? String(localized: "settings.agents.removeConfirmTitle", bundle: .module)),
+                String(format: String(localized: "settings.agents.removeOneTitle", bundle: .appResources), HandoffModel.agentName($0))
+            } ?? String(localized: "settings.agents.removeConfirmTitle", bundle: .appResources)),
             isPresented: $confirmRemoval,
             titleVisibility: .visible
         ) {
-            Button(String(localized: "settings.agents.removeConfirm", bundle: .module), role: .destructive) { remove() }
-            Button(String(localized: "settings.cancel", bundle: .module), role: .cancel) {}
+            Button(String(localized: "settings.agents.removeConfirm", bundle: .appResources), role: .destructive) { remove() }
+            Button(String(localized: "settings.cancel", bundle: .appResources), role: .cancel) {}
         } message: {
             Text(removalAgent == nil
-                 ? String(localized: "settings.agents.removeConfirmMessage", bundle: .module)
-                 : String(localized: "settings.agents.removeOneMessage", bundle: .module))
+                 ? String(localized: "settings.agents.removeConfirmMessage", bundle: .appResources)
+                 : String(localized: "settings.agents.removeOneMessage", bundle: .appResources))
         }
     }
 
@@ -328,24 +328,24 @@ private struct AgentsSettingsView: View {
             }
             HStack {
                 Text(detectedAgents.contains(status.agent)
-                     ? String(localized: "settings.agents.detected", bundle: .module)
-                     : String(localized: "settings.agents.notDetected", bundle: .module))
+                     ? String(localized: "settings.agents.detected", bundle: .appResources)
+                     : String(localized: "settings.agents.notDetected", bundle: .appResources))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(status.state == .connected
-                       ? String(localized: "settings.agents.updateOne", bundle: .module)
-                       : String(localized: "settings.agents.configureOne", bundle: .module)) {
+                       ? String(localized: "settings.agents.updateOne", bundle: .appResources)
+                       : String(localized: "settings.agents.configureOne", bundle: .appResources)) {
                     configure(agents: [status.agent])
                 }
                 .disabled(!helperAvailable || status.state == .unmanaged || status.state == .unreadable)
                 if status.state == .connected {
-                    Button(String(localized: "settings.agents.removeOne", bundle: .module), role: .destructive) {
+                    Button(String(localized: "settings.agents.removeOne", bundle: .appResources), role: .destructive) {
                         removalAgent = status.agent
                         confirmRemoval = true
                     }
                 }
             }
-            Toggle(String(localized: "settings.agents.memoryAutoUpdate", bundle: .module), isOn: Binding(
+            Toggle(String(localized: "settings.agents.memoryAutoUpdate", bundle: .appResources), isOn: Binding(
                 get: { store.settings.memoryAutoUpdateAgents.contains(status.agent) },
                 set: { enabled in
                     store.update {
@@ -356,11 +356,11 @@ private struct AgentsSettingsView: View {
             ))
             .toggleStyle(.switch)
             .controlSize(.small)
-            Text("settings.agents.memoryAutoUpdateHint", bundle: .module)
+            Text("settings.agents.memoryAutoUpdateHint", bundle: .appResources)
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if status.agent == "claude" {
-                Text("settings.agents.claudeHint", bundle: .module)
+                Text("settings.agents.claudeHint", bundle: .appResources)
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -371,12 +371,12 @@ private struct AgentsSettingsView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text(String(format: String(localized: "settings.agents.config", bundle: .module), AppPaths.abbreviate(status.configPath)))
+            Text(String(format: String(localized: "settings.agents.config", bundle: .appResources), AppPaths.abbreviate(status.configPath)))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
             if let helper = status.helperPath {
-                Text(String(format: String(localized: "settings.agents.registeredHelper", bundle: .module), helper))
+                Text(String(format: String(localized: "settings.agents.registeredHelper", bundle: .appResources), helper))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -398,23 +398,23 @@ private struct AgentsSettingsView: View {
         case .notConfigured:
             return nil
         case .unmanaged:
-            if status.agent == "claude" { return String(localized: "settings.agents.claudeUnmanagedHint", bundle: .module) }
+            if status.agent == "claude" { return String(localized: "settings.agents.claudeUnmanagedHint", bundle: .appResources) }
             if status.agent == "cursor" {
-                return String(localized: "settings.agents.cursorUnmanagedHint", bundle: .module)
+                return String(localized: "settings.agents.cursorUnmanagedHint", bundle: .appResources)
             }
             if status.agent == "antigravity" {
-                return String(localized: "settings.agents.antigravityUnmanagedHint", bundle: .module)
+                return String(localized: "settings.agents.antigravityUnmanagedHint", bundle: .appResources)
             }
-            return String(localized: "settings.agents.unmanagedHint", bundle: .module)
+            return String(localized: "settings.agents.unmanagedHint", bundle: .appResources)
         case .unreadable:
-            return String(localized: "settings.agents.unreadableHint", bundle: .module)
+            return String(localized: "settings.agents.unreadableHint", bundle: .appResources)
         case .connected:
             guard let helper = status.helperPath else { return nil }
             if !FileManager.default.isExecutableFile(atPath: helper) {
-                return String(localized: "settings.agents.helperMissingHint", bundle: .module)
+                return String(localized: "settings.agents.helperMissingHint", bundle: .appResources)
             }
             if helper != currentHelper {
-                return String(localized: "settings.agents.helperMismatchHint", bundle: .module)
+                return String(localized: "settings.agents.helperMismatchHint", bundle: .appResources)
             }
             return nil
         }
@@ -423,22 +423,22 @@ private struct AgentsSettingsView: View {
     private func stateLabel(_ status: AgentConnectionStatus) -> String {
         switch status.state {
         case .notConfigured:
-            return String(localized: "settings.agents.notConnected", bundle: .module)
+            return String(localized: "settings.agents.notConnected", bundle: .appResources)
         case .unmanaged:
-            return String(localized: "settings.agents.unmanaged", bundle: .module)
+            return String(localized: "settings.agents.unmanaged", bundle: .appResources)
         case .unreadable:
-            return String(localized: "settings.agents.unreadable", bundle: .module)
+            return String(localized: "settings.agents.unreadable", bundle: .appResources)
         case .connected:
             guard let helper = status.helperPath else {
-                return String(localized: "settings.agents.connected", bundle: .module)
+                return String(localized: "settings.agents.connected", bundle: .appResources)
             }
             if !FileManager.default.isExecutableFile(atPath: helper) {
-                return String(localized: "settings.agents.helperMissing", bundle: .module)
+                return String(localized: "settings.agents.helperMissing", bundle: .appResources)
             }
             if helper != currentHelper {
-                return String(localized: "settings.agents.helperMismatch", bundle: .module)
+                return String(localized: "settings.agents.helperMismatch", bundle: .appResources)
             }
-            return String(localized: "settings.agents.connected", bundle: .module)
+            return String(localized: "settings.agents.connected", bundle: .appResources)
         }
     }
 
@@ -505,7 +505,7 @@ private struct AgentsSettingsView: View {
             guard let home = homes[agent] else { continue }
             do {
                 _ = try AgentIntegration.configure(agent: agent, executable: removing ? nil : currentHelper, home: home)
-                let message = String(localized: removing ? "settings.agents.removedOne" : "settings.agents.configuredOne", bundle: .module)
+                let message = String(localized: removing ? "settings.agents.removedOne" : "settings.agents.configuredOne", bundle: .appResources)
                 agentFeedback[agent] = SettingsFeedback(text: message)
                 messages.append("\(HandoffModel.agentName(agent)): \(message)")
             } catch {
@@ -534,8 +534,8 @@ private struct CaptureSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: String(localized: "settings.section.capture", bundle: .module),
-            subtitle: String(localized: "settings.capture.intro", bundle: .module)
+            title: String(localized: "settings.section.capture", bundle: .appResources),
+            subtitle: String(localized: "settings.capture.intro", bundle: .appResources)
         ) {
             GroupBox {
                 VStack(alignment: .leading, spacing: 14) {
@@ -544,8 +544,8 @@ private struct CaptureSettingsView: View {
                         set: { value in store.update { $0.watchAutomatically = value } }
                     )) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("settings.capture.watch", bundle: .module)
-                            Text("settings.capture.watchHint", bundle: .module)
+                            Text("settings.capture.watch", bundle: .appResources)
+                            Text("settings.capture.watchHint", bundle: .appResources)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -553,7 +553,7 @@ private struct CaptureSettingsView: View {
                     }
                     Divider()
                     HStack {
-                        Text("settings.capture.interval", bundle: .module)
+                        Text("settings.capture.interval", bundle: .appResources)
                         Spacer()
                         Picker("", selection: Binding(
                             get: { store.settings.scanIntervalSeconds },
@@ -567,7 +567,7 @@ private struct CaptureSettingsView: View {
                         .frame(width: 160)
                     }
                     .disabled(!store.settings.watchAutomatically)
-                    Text("settings.capture.intervalHint", bundle: .module)
+                    Text("settings.capture.intervalHint", bundle: .appResources)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -577,10 +577,10 @@ private struct CaptureSettingsView: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("settings.capture.status", bundle: .module).font(.headline)
+                        Text("settings.capture.status", bundle: .appResources).font(.headline)
                         if model.isManualScanning { ProgressView().controlSize(.small) }
                         Spacer()
-                        Button(String(localized: "settings.scanNow", bundle: .module)) {
+                        Button(String(localized: "settings.scanNow", bundle: .appResources)) {
                             Task { await model.refresh(manual: true) }
                         }
                         .disabled(model.isManualScanning)
@@ -590,13 +590,13 @@ private struct CaptureSettingsView: View {
                         Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }
                     if !model.report.errors.isEmpty {
-                        DisclosureGroup(String(format: String(localized: "settings.capture.errors", bundle: .module), model.report.errors.count)) {
+                        DisclosureGroup(String(format: String(localized: "settings.capture.errors", bundle: .appResources), model.report.errors.count)) {
                             diagnostics(model.report.errors)
                         }
                         .font(.caption)
                     }
                     if !model.report.unavailable.isEmpty {
-                        DisclosureGroup(String(format: String(localized: "settings.capture.unavailable", bundle: .module), model.report.unavailable.count)) {
+                        DisclosureGroup(String(format: String(localized: "settings.capture.unavailable", bundle: .appResources), model.report.unavailable.count)) {
                             diagnostics(model.report.unavailable)
                         }
                         .font(.caption)
@@ -610,10 +610,10 @@ private struct CaptureSettingsView: View {
     private var statusText: String {
         if model.stats == nil && model.report.discovered == 0 && model.report.imported == 0
             && model.report.unchanged == 0 && model.report.errors.isEmpty {
-            return String(localized: "settings.capture.never", bundle: .module)
+            return String(localized: "settings.capture.never", bundle: .appResources)
         }
         return String(
-            format: String(localized: "settings.capture.lastScan", bundle: .module),
+            format: String(localized: "settings.capture.lastScan", bundle: .appResources),
             model.report.discovered,
             model.report.imported,
             model.report.unchanged
@@ -622,12 +622,12 @@ private struct CaptureSettingsView: View {
 
     private func intervalLabel(_ seconds: Int) -> String {
         switch seconds {
-        case 15: String(localized: "settings.capture.interval.15", bundle: .module)
-        case 30: String(localized: "settings.capture.interval.30", bundle: .module)
-        case 60: String(localized: "settings.capture.interval.60", bundle: .module)
-        case 300: String(localized: "settings.capture.interval.300", bundle: .module)
-        case 900: String(localized: "settings.capture.interval.900", bundle: .module)
-        case 1800: String(localized: "settings.capture.interval.1800", bundle: .module)
+        case 15: String(localized: "settings.capture.interval.15", bundle: .appResources)
+        case 30: String(localized: "settings.capture.interval.30", bundle: .appResources)
+        case 60: String(localized: "settings.capture.interval.60", bundle: .appResources)
+        case 300: String(localized: "settings.capture.interval.300", bundle: .appResources)
+        case 900: String(localized: "settings.capture.interval.900", bundle: .appResources)
+        case 1800: String(localized: "settings.capture.interval.1800", bundle: .appResources)
         default: "\(seconds)s"
         }
     }
@@ -651,17 +651,17 @@ private struct AppearanceSettingsView: View {
 
     var body: some View {
         SettingsPage(
-            title: String(localized: "settings.section.appearance", bundle: .module),
-            subtitle: String(localized: "settings.appearance.intro", bundle: .module)
+            title: String(localized: "settings.section.appearance", bundle: .appResources),
+            subtitle: String(localized: "settings.appearance.intro", bundle: .appResources)
         ) {
-            GroupBox(label: Text("settings.appearance.mode", bundle: .module).font(.headline)) {
+            GroupBox(label: Text("settings.appearance.mode", bundle: .appResources).font(.headline)) {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 12) {
                         ForEach(AppearancePreference.allCases, id: \.self) { preference in
                             optionCard(preference)
                         }
                     }
-                    Text("settings.appearance.hint", bundle: .module)
+                    Text("settings.appearance.hint", bundle: .appResources)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -742,9 +742,9 @@ private struct AppearanceSettingsView: View {
 
     private func label(_ preference: AppearancePreference) -> String {
         switch preference {
-        case .system: String(localized: "settings.appearance.system", bundle: .module)
-        case .light: String(localized: "settings.appearance.light", bundle: .module)
-        case .dark: String(localized: "settings.appearance.dark", bundle: .module)
+        case .system: String(localized: "settings.appearance.system", bundle: .appResources)
+        case .light: String(localized: "settings.appearance.light", bundle: .appResources)
+        case .dark: String(localized: "settings.appearance.dark", bundle: .appResources)
         }
     }
 }
@@ -759,36 +759,36 @@ private struct AboutSettingsView: View {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
         let build = info?["CFBundleVersion"] as? String ?? "1"
-        return String(format: String(localized: "settings.about.version", bundle: .module), short, build)
+        return String(format: String(localized: "settings.about.version", bundle: .appResources), short, build)
     }
 
     var body: some View {
         SettingsPage(
-            title: String(localized: "settings.section.about", bundle: .module),
-            subtitle: String(localized: "settings.about.description", bundle: .module)
+            title: String(localized: "settings.section.about", bundle: .appResources),
+            subtitle: String(localized: "settings.about.description", bundle: .appResources)
         ) {
-            GroupBox(label: Text("settings.updates.title", bundle: .module).font(.headline)) {
+            GroupBox(label: Text("settings.updates.title", bundle: .appResources).font(.headline)) {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(isOn: Binding(
                         get: { updates.automaticallyChecksForUpdates },
                         set: { updates.setAutomaticallyChecksForUpdates($0) }
                     )) {
-                        Text("settings.updates.automatic", bundle: .module)
+                        Text("settings.updates.automatic", bundle: .appResources)
                     }
                     .disabled(!updates.isAvailable)
-                    Text("settings.updates.hint", bundle: .module)
+                    Text("settings.updates.hint", bundle: .appResources)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack {
-                        Button(String(localized: "settings.updates.checkNow", bundle: .module)) {
+                        Button(String(localized: "settings.updates.checkNow", bundle: .appResources)) {
                             updates.checkForUpdates()
                         }
                         .disabled(!updates.canCheckForUpdates)
                         Spacer()
                     }
                     if !updates.isAvailable {
-                        Text("settings.updates.unavailable", bundle: .module)
+                        Text("settings.updates.unavailable", bundle: .appResources)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -796,7 +796,7 @@ private struct AboutSettingsView: View {
                 .padding(8)
             }
 
-            GroupBox(label: Text("settings.about.title", bundle: .module).font(.headline)) {
+            GroupBox(label: Text("settings.about.title", bundle: .appResources).font(.headline)) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .center, spacing: 14) {
                         Image(nsImage: NSApplication.shared.applicationIconImage ?? NSImage())
@@ -808,10 +808,10 @@ private struct AboutSettingsView: View {
                         }
                     }
                     Divider()
-                    infoRow(String(localized: "settings.about.helper", bundle: .module), AppPaths.helperExecutable, monospaced: true)
-                    infoRow(String(localized: "settings.about.database", bundle: .module), AppPaths.abbreviate(store.settings.resolvedPaths().database.path), monospaced: true)
-                    infoRow(String(localized: "settings.about.settingsFile", bundle: .module), AppPaths.abbreviate(AppPaths.settingsURL.path), monospaced: true)
-                    infoRow(String(localized: "settings.about.license", bundle: .module), "MIT")
+                    infoRow(String(localized: "settings.about.helper", bundle: .appResources), AppPaths.helperExecutable, monospaced: true)
+                    infoRow(String(localized: "settings.about.database", bundle: .appResources), AppPaths.abbreviate(store.settings.resolvedPaths().database.path), monospaced: true)
+                    infoRow(String(localized: "settings.about.settingsFile", bundle: .appResources), AppPaths.abbreviate(AppPaths.settingsURL.path), monospaced: true)
+                    infoRow(String(localized: "settings.about.license", bundle: .appResources), "MIT")
                 }
                 .padding(8)
             }

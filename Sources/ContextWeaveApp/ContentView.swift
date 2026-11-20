@@ -83,13 +83,13 @@ struct ContentView: View {
     }
 
     private func projectLabel(_ id: String?) -> String {
-        guard let id, let label = projectChoices.first(where: { $0.id == id })?.label else { return String(localized: "handoff.noProject", bundle: .module) }
+        guard let id, let label = projectChoices.first(where: { $0.id == id })?.label else { return String(localized: "handoff.noProject", bundle: .appResources) }
         return label
     }
     private func projectLabel(for item: SessionSummary) -> String {
         if let id = item.stableProjectID, let label = projectChoices.first(where: { $0.id == id })?.label { return label }
         if let path = item.projectID, !path.isEmpty { return URL(fileURLWithPath: path).lastPathComponent }
-        return String(localized: "handoff.noProject", bundle: .module)
+        return String(localized: "handoff.noProject", bundle: .appResources)
     }
 
     var body: some View {
@@ -237,16 +237,16 @@ struct ContentView: View {
                 }
                 .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("tab.archived", bundle: .module)
+                    Text("tab.archived", bundle: .appResources)
                         .font(.system(size: 22, weight: .semibold))
-                    Text("archive.subtitle", bundle: .module)
+                    Text("archive.subtitle", bundle: .appResources)
                         .font(.caption)
                         .foregroundStyle(Weave.muted)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 620, alignment: .leading)
                 }
                 Spacer(minLength: 8)
-                Text(String(format: String(localized: "archive.count", bundle: .module), archivedFiltered.count))
+                Text(String(format: String(localized: "archive.count", bundle: .appResources), archivedFiltered.count))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Weave.muted)
                     .padding(.horizontal, 9)
@@ -264,11 +264,11 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Weave.muted)
-                    .help(Text("handoff.refresh", bundle: .module))
+                    .help(Text("handoff.refresh", bundle: .appResources))
                 }
             }
             HStack(spacing: 8) {
-                archivedChip(nil, label: String(localized: "handoff.agent.rail.all", bundle: .module))
+                archivedChip(nil, label: String(localized: "handoff.agent.rail.all", bundle: .appResources))
                 archivedChip("codex", label: "Codex")
                 archivedChip("dsh", label: "DeepSeek Harness")
                 archivedChip("cursor", label: "Cursor")
@@ -311,9 +311,9 @@ struct ContentView: View {
             Image(systemName: "archivebox")
                 .font(.system(size: 38, weight: .light))
                 .foregroundStyle(Weave.muted)
-            Text("archive.emptyTitle", bundle: .module)
+            Text("archive.emptyTitle", bundle: .appResources)
                 .font(.title3.weight(.semibold))
-            Text("archive.emptyBody", bundle: .module)
+            Text("archive.emptyBody", bundle: .appResources)
                 .font(.callout)
                 .foregroundStyle(Weave.muted)
                 .multilineTextAlignment(.center)
@@ -367,7 +367,7 @@ struct ContentView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if projectGroups.isEmpty {
-                    Text("handoff.hint", bundle: .module)
+                    Text("handoff.hint", bundle: .appResources)
                         .font(.caption)
                         .foregroundStyle(Weave.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -442,7 +442,7 @@ struct ContentView: View {
                                     .frame(height: 1)
                                     .id(Self.transcriptTopID)
                                     .onAppear { autoLoadEarlier(session) }
-                                Button(String(localized: "handoff.earlier", bundle: .module)) {
+                                Button(String(localized: "handoff.earlier", bundle: .appResources)) {
                                     Task { await loadEarlier(session.source.id) }
                                 }
                                 .disabled(loadingEarlier)
@@ -488,7 +488,7 @@ struct ContentView: View {
                                 isAtBottom = true
                                 scrollToTranscriptBottom(proxy)
                             } label: {
-                                Label(String(localized: "handoff.jumpToLatest", bundle: .module), systemImage: "arrow.down")
+                                Label(String(localized: "handoff.jumpToLatest", bundle: .appResources), systemImage: "arrow.down")
                                     .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
@@ -583,7 +583,7 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Label(copied ? String(localized: "handoff.copied", bundle: .module) : String(localized: "handoff.copy", bundle: .module), systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? String(localized: "handoff.copied", bundle: .appResources) : String(localized: "handoff.copy", bundle: .appResources), systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
@@ -621,7 +621,7 @@ private struct EmptyHandoff: View {
                     }
                 }
             }
-            Text("welcome.tagline", bundle: .module)
+            Text("welcome.tagline", bundle: .appResources)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Weave.muted)
                 .multilineTextAlignment(.center)
@@ -686,8 +686,8 @@ private struct SessionOverflowButton: View {
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 11, weight: .bold))
                 Text(expanded
-                    ? String(localized: "handoff.sessions.less", bundle: .module)
-                    : String(localized: "handoff.sessions.more", bundle: .module))
+                    ? String(localized: "handoff.sessions.less", bundle: .appResources)
+                    : String(localized: "handoff.sessions.more", bundle: .appResources))
                     .lineLimit(1)
                 if !expanded {
                     Text("\(hiddenCount)")
@@ -737,9 +737,9 @@ private struct RunBadge: View {
 
     private var title: String {
         switch state {
-        case .running: String(localized: "handoff.run.running", bundle: .module)
-        case .awaitingApproval: String(localized: "handoff.run.approval", bundle: .module)
-        case .finished, .aborted: String(localized: "handoff.run.ended", bundle: .module)
+        case .running: String(localized: "handoff.run.running", bundle: .appResources)
+        case .awaitingApproval: String(localized: "handoff.run.approval", bundle: .appResources)
+        case .finished, .aborted: String(localized: "handoff.run.ended", bundle: .appResources)
         }
     }
 
@@ -762,7 +762,7 @@ private struct SessionIdentityText: View {
             .lineLimit(1)
             .truncationMode(.middle)
             .help(id)
-            .accessibilityLabel(Text("handoff.session.id", bundle: .module))
+            .accessibilityLabel(Text("handoff.session.id", bundle: .appResources))
             .accessibilityValue(Text(id))
     }
 }
@@ -857,7 +857,7 @@ private struct AppMark: View {
     }
 
     private var icon: Image {
-        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+        if let url = Bundle.appResources.url(forResource: "AppIcon", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
             Image(nsImage: image)
         } else {
@@ -908,8 +908,8 @@ private struct AppRail: View {
             .buttonStyle(.plain)
             .foregroundStyle(isHoveringSettings ? Weave.thread : Weave.muted)
             .onHover { isHoveringSettings = $0 }
-            .help(Text("settings.open", bundle: .module))
-            .accessibilityLabel(Text("settings.open", bundle: .module))
+            .help(Text("settings.open", bundle: .appResources))
+            .accessibilityLabel(Text("settings.open", bundle: .appResources))
             .padding(.bottom, 12)
         }
         .frame(width: 52)
@@ -930,11 +930,11 @@ private struct ProjectAgentRail: View {
         VStack(spacing: 4) {
             AgentRailButton(
                 symbol: "circle.grid.2x2",
-                name: String(localized: "handoff.agent.rail.all", bundle: .module),
+                name: String(localized: "handoff.agent.rail.all", bundle: .appResources),
                 compact: !showsNames,
                 tint: Weave.thread,
                 selected: agentFilter == nil,
-                help: String(localized: "handoff.agent.all", bundle: .module)
+                help: String(localized: "handoff.agent.all", bundle: .appResources)
             ) { agentFilter = nil }
             AgentRailButton(
                 agent: "codex",
@@ -1004,7 +1004,7 @@ private struct ProjectAgentRail: View {
                         .frame(width: 16, height: 16)
                 }
                 if showsNames {
-                    Text("handoff.refresh", bundle: .module)
+                    Text("handoff.refresh", bundle: .appResources)
                         .font(.caption.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -1023,8 +1023,8 @@ private struct ProjectAgentRail: View {
         .buttonStyle(.plain)
         .onHover { isHoveringRefresh = $0 }
         .disabled(model.isManualScanning)
-        .help(Text("handoff.refresh", bundle: .module))
-        .accessibilityLabel(Text("handoff.refresh", bundle: .module))
+        .help(Text("handoff.refresh", bundle: .appResources))
+        .accessibilityLabel(Text("handoff.refresh", bundle: .appResources))
     }
 
     private var collapseAction: some View {
@@ -1036,7 +1036,7 @@ private struct ProjectAgentRail: View {
                     .font(.system(size: 11, weight: .bold))
                     .frame(width: 16, height: 16)
                 if showsNames {
-                    Text("handoff.agent.rail.collapse", bundle: .module)
+                    Text("handoff.agent.rail.collapse", bundle: .appResources)
                         .font(.caption.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -1054,8 +1054,8 @@ private struct ProjectAgentRail: View {
         }
         .buttonStyle(.plain)
         .onHover { isHoveringCollapse = $0 }
-        .help(Text(showsNames ? "handoff.agent.rail.collapse" : "handoff.agent.rail.expand", bundle: .module))
-        .accessibilityLabel(Text(showsNames ? "handoff.agent.rail.collapse" : "handoff.agent.rail.expand", bundle: .module))
+        .help(Text(showsNames ? "handoff.agent.rail.collapse" : "handoff.agent.rail.expand", bundle: .appResources))
+        .accessibilityLabel(Text(showsNames ? "handoff.agent.rail.collapse" : "handoff.agent.rail.expand", bundle: .appResources))
     }
 }
 

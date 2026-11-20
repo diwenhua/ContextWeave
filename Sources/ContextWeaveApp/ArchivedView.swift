@@ -15,7 +15,7 @@ struct ArchivedSessionCard: View {
                 Spacer(minLength: 4)
                 HStack(spacing: 4) {
                     Image(systemName: "lock")
-                    Text("archive.readOnly", bundle: .module)
+                    Text("archive.readOnly", bundle: .appResources)
                 }
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(Weave.muted)
@@ -68,7 +68,7 @@ struct ArchivedSessionCard: View {
         let stamp = item.archivedAt ?? item.lastActivity
         let relative = Date(timeIntervalSince1970: TimeInterval(stamp) / 1000)
             .formatted(.relative(presentation: .named))
-        return String(format: String(localized: "archive.archivedAt", bundle: .module), relative)
+        return String(format: String(localized: "archive.archivedAt", bundle: .appResources), relative)
     }
 }
 
@@ -89,7 +89,7 @@ struct ArchivedPreviewSheet: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if start > 0 {
-                            Button(String(localized: "handoff.earlier", bundle: .module)) {
+                            Button(String(localized: "handoff.earlier", bundle: .appResources)) {
                                 Task { await loadEarlier() }
                             }
                             .disabled(loadingEarlier)
@@ -111,10 +111,10 @@ struct ArchivedPreviewSheet: View {
                     .frame(maxWidth: .infinity)
                 }
             } else if loading {
-                ProgressView(String(localized: "archive.loading", bundle: .module))
+                ProgressView(String(localized: "archive.loading", bundle: .appResources))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Text("archive.emptySession", bundle: .module)
+                Text("archive.emptySession", bundle: .appResources)
                     .font(.callout)
                     .foregroundStyle(Weave.muted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -141,9 +141,9 @@ struct ArchivedPreviewSheet: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Image(systemName: "lock")
-                    Text("archive.readOnly", bundle: .module)
+                    Text("archive.readOnly", bundle: .appResources)
                     Text("·")
-                    Text(String(format: String(localized: "archive.messages", bundle: .module), summary.messageCount))
+                    Text(String(format: String(localized: "archive.messages", bundle: .appResources), summary.messageCount))
                 }
                 .font(.caption2)
                 .foregroundStyle(Weave.muted)
@@ -158,7 +158,7 @@ struct ArchivedPreviewSheet: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Weave.muted)
-            .help(Text("archive.close", bundle: .module))
+            .help(Text("archive.close", bundle: .appResources))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

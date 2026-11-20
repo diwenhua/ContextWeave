@@ -76,7 +76,7 @@ enum TranscriptBuilder {
             case .call:
                 entries.append(.tool(ToolActivity(
                     id: message.id,
-                    name: parsed.name ?? String(localized: "handoff.role.tool", bundle: .module),
+                    name: parsed.name ?? String(localized: "handoff.role.tool", bundle: .appResources),
                     callID: parsed.callID,
                     input: parsed.input,
                     output: nil,
@@ -102,7 +102,7 @@ enum TranscriptBuilder {
                 } else {
                     entries.append(.tool(ToolActivity(
                         id: message.id,
-                        name: parsed.name ?? String(localized: "handoff.role.tool", bundle: .module),
+                        name: parsed.name ?? String(localized: "handoff.role.tool", bundle: .appResources),
                         callID: parsed.callID,
                         input: nil,
                         output: parsed.output,
@@ -115,7 +115,7 @@ enum TranscriptBuilder {
             case .combined, .unknown:
                 entries.append(.tool(ToolActivity(
                     id: message.id,
-                    name: parsed.name ?? String(localized: "handoff.role.tool", bundle: .module),
+                    name: parsed.name ?? String(localized: "handoff.role.tool", bundle: .appResources),
                     callID: parsed.callID,
                     input: parsed.input,
                     output: parsed.output,
@@ -270,10 +270,10 @@ struct MessageCard: View {
 
     private var roleTitle: String {
         switch message.role {
-        case .user: String(localized: "handoff.role.user", bundle: .module)
-        case .assistant: String(localized: "handoff.role.assistant", bundle: .module)
-        case .tool: String(localized: "handoff.role.tool", bundle: .module)
-        case .system: String(localized: "handoff.role.system", bundle: .module)
+        case .user: String(localized: "handoff.role.user", bundle: .appResources)
+        case .assistant: String(localized: "handoff.role.assistant", bundle: .appResources)
+        case .tool: String(localized: "handoff.role.tool", bundle: .appResources)
+        case .system: String(localized: "handoff.role.system", bundle: .appResources)
         }
     }
 }
@@ -314,8 +314,8 @@ struct ToolCallCard: View {
                 header
             }
             .buttonStyle(.plain)
-            .help(Text(isExpanded ? "handoff.tool.collapse" : "handoff.tool.expand", bundle: .module))
-            .accessibilityLabel(Text(isExpanded ? "handoff.tool.collapse" : "handoff.tool.expand", bundle: .module))
+            .help(Text(isExpanded ? "handoff.tool.collapse" : "handoff.tool.expand", bundle: .appResources))
+            .accessibilityLabel(Text(isExpanded ? "handoff.tool.collapse" : "handoff.tool.expand", bundle: .appResources))
 
             if isExpanded {
                 Divider().overlay(Weave.line).padding(.vertical, 10)
@@ -371,17 +371,17 @@ struct ToolCallCard: View {
     @ViewBuilder private var details: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let input = activity.input, !input.isEmpty {
-                section(title: String(localized: "handoff.tool.input", bundle: .module), text: input)
+                section(title: String(localized: "handoff.tool.input", bundle: .appResources), text: input)
             }
             if let output = activity.output, !output.isEmpty {
-                section(title: String(localized: "handoff.tool.output", bundle: .module), text: output)
+                section(title: String(localized: "handoff.tool.output", bundle: .appResources), text: output)
             } else if status == .running {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("handoff.tool.waiting", bundle: .module).font(.caption).foregroundStyle(Weave.muted)
+                    Text("handoff.tool.waiting", bundle: .appResources).font(.caption).foregroundStyle(Weave.muted)
                 }
             } else {
-                Text("handoff.tool.noOutput", bundle: .module)
+                Text("handoff.tool.noOutput", bundle: .appResources)
                     .font(.caption)
                     .foregroundStyle(Weave.muted)
             }
@@ -433,10 +433,10 @@ struct ToolCallCard: View {
 
     private var statusTitle: String {
         switch status {
-        case .running: String(localized: "handoff.tool.running", bundle: .module)
-        case .completed: String(localized: "handoff.tool.completed", bundle: .module)
-        case .failed: String(localized: "handoff.tool.failed", bundle: .module)
-        case .pending: String(localized: "handoff.tool.pending", bundle: .module)
+        case .running: String(localized: "handoff.tool.running", bundle: .appResources)
+        case .completed: String(localized: "handoff.tool.completed", bundle: .appResources)
+        case .failed: String(localized: "handoff.tool.failed", bundle: .appResources)
+        case .pending: String(localized: "handoff.tool.pending", bundle: .appResources)
         }
     }
 
@@ -600,7 +600,7 @@ private struct CopyButton: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(Weave.muted)
-        .help(Text(copied ? "handoff.copied" : "handoff.code.copy", bundle: .module))
-        .accessibilityLabel(Text(copied ? "handoff.copied" : "handoff.code.copy", bundle: .module))
+        .help(Text(copied ? "handoff.copied" : "handoff.code.copy", bundle: .appResources))
+        .accessibilityLabel(Text(copied ? "handoff.copied" : "handoff.code.copy", bundle: .appResources))
     }
 }
