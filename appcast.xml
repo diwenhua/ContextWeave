@@ -4,16 +4,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
   <channel>
     <title>ContextWeave Updates</title>
     <item>
-      <title>ContextWeave 0.1.1</title>
-      <pubDate>Fri, 20 Nov 2026 06:58:49 +0000</pubDate>
-      <sparkle:version>14</sparkle:version>
-      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <title>ContextWeave 0.1.2</title>
+      <pubDate>Fri, 20 Nov 2026 09:39:19 +0000</pubDate>
+      <sparkle:version>17</sparkle:version>
+      <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-      <enclosure url="https://github.com/diwenhua/ContextWeave/releases/download/v0.1.1/ContextWeave-0.1.1-macOS-arm64.dmg" length="6256141" type="application/octet-stream" sparkle:edSignature="yN5sFuQXxoxFbwY0D4hsQl0lFYpd3mhVTus1MxjDSqTaZ8CxggVeP9Nqq00k1fp5Pn682xwfeW+FLohTWQxjAw=="></enclosure>
+      <enclosure url="https://github.com/diwenhua/ContextWeave/releases/download/v0.1.2/ContextWeave-0.1.2-macOS-arm64.dmg" length="6258647" type="application/octet-stream" sparkle:edSignature="IagYn//j0sjdhWiaP5mOBqNL0xpOqVxLmcBFrq9D6HCGyWj7HKdH37UbBphGYELMcCbRyME2Ci+Kunw7CBVuAw=="></enclosure>
     </item>
   </channel>
 </rss><!-- sparkle-signatures:
-edSignature: O0CyU3yXeit6f8+imiGQozei9+bWaMDSOFuqY3WkPLecUBL3NR8Nl/0RwFZbqFxVtfird5iFkfcvca/1rvAiBQ==
+edSignature: w4udQCbZDTXLlEHUW88dZyIESkn03KnC9QcWwqNWHRcd8pcby829hTcxFRdKJ8IzusubFWpAbzW2F9Xw8QIODA==
 length: 1125
 -->
