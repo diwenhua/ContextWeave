@@ -195,7 +195,10 @@ public actor HandoffService {
             while let file = enumerator?.nextObject() as? URL {
                 let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                 guard values?.isRegularFile == true, values?.isSymbolicLink != true else { continue }
-                if agent == "codex" && file.lastPathComponent.hasPrefix("rollout-") && file.pathExtension == "jsonl" { files.append(file) }
+                if agent == "codex", file.lastPathComponent.hasPrefix("rollout-"),
+                   [".jsonl", ".jsonl.zst", ".jsonl.zstd"].contains(where: file.lastPathComponent.hasSuffix) {
+                    files.append(file)
+                }
                 // Only main transcripts directly inside each project directory. Subagents
                 // live in nested subagents/ directories and must not become user sessions.
                 if agent == "claude", file.pathExtension == "jsonl",
@@ -671,7 +674,7 @@ public actor HandoffService {
     }
 
     private func read(_ file: URL, agent: String, path: String, previous: FileCursor?, identity: (inode: String, size: Int64, mtimeMS: Int64)) throws -> CapturedFile {
-        let compressed = file.pathExtension == "zstd"
+        let compressed = ["zst", "zstd"].contains(file.pathExtension)
         let start = previous?.offset ?? 0
         var state = previous.map { Self.state(agent: agent, cursor: $0) } ?? CaptureState(agent: agent)
         let data = try Self.bytes(file, from: start)

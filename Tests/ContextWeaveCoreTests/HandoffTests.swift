@@ -273,6 +273,32 @@ final class HandoffTests: XCTestCase {
         let preserved = try await service.session(SessionID(agent: "codex", externalID: "shared"))
         XCTAssertEqual(preserved?.messages.count, 2)
     }
+    func testCodexCompressedHistoryMergesWithLiveRollout() async throws {
+        let root = try directory()
+        let logs = root.appendingPathComponent("sessions")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        func transcript(ordinal: Int, message: String) throws -> String {
+            try jsonl([
+                ["type": "session_meta", "ordinal": ordinal, "payload": ["id": "resumed"]],
+                ["type": "response_item", "ordinal": ordinal + 1, "payload": ["type": "message", "role": "user", "content": [["text": message]]]]
+            ])
+        }
+        let payload = Data(try transcript(ordinal: 0, message: "Old message").utf8)
+        let block = (payload.count << 3) | 1
+        let frame = Data([0x28, 0xb5, 0x2f, 0xfd, 0x20, UInt8(payload.count), UInt8(block & 255), UInt8(block >> 8), 0]) + payload
+        try frame.write(to: logs.appendingPathComponent("rollout-a.jsonl.zst"))
+        try transcript(ordinal: 100, message: "New message").write(
+            to: logs.appendingPathComponent("rollout-b.jsonl"), atomically: true, encoding: .utf8
+        )
+        let service = try HandoffService(configuration: CaptureConfiguration(codexRoot: logs, dshRoot: root.appendingPathComponent("missing"), databaseURL: root.appendingPathComponent("data.sqlite")))
+        let report = await service.scan()
+        XCTAssertTrue(report.errors.isEmpty, report.errors.joined(separator: "\n"))
+        XCTAssertEqual(report.discovered, 2)
+        let session = try await service.session(SessionID(agent: "codex", externalID: "resumed"))
+        XCTAssertEqual(session?.messages.map(\.content), ["Old message", "New message"])
+        let repeated = await service.scan()
+        XCTAssertEqual(repeated.unchanged, 2)
+    }
     func testAppendReadsOnlyTheNewTail() async throws {
         let root = try directory(), logs = root.appendingPathComponent("codex")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
