@@ -209,6 +209,28 @@ extension AgentIntegration {
         return current.contains("\r\n") ? repaired.replacingOccurrences(of: "\n", with: "\r\n") : repaired
     }
 
+    // Codex records trusted project paths and plugin settings in the same file.
+    // Only MCP tables (or inline/dotted MCP keys) can register this server.
+    private static func hasCodexRegistration(_ text: String) -> Bool {
+        var inServersTable = false
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                let table = line.prefix { $0 != "]" }.dropFirst()
+                    .replacingOccurrences(of: #"[\s"']"#, with: "", options: .regularExpression)
+                inServersTable = table == "mcp_servers"
+                if table == "mcp_servers.contextweave" || table.hasPrefix("mcp_servers.contextweave.") { return true }
+            } else if !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") {
+                let key = line[..<equals].replacingOccurrences(of: #"[\s"']"#, with: "", options: .regularExpression)
+                if key == "mcp_servers.contextweave" || key.hasPrefix("mcp_servers.contextweave.")
+                    || (inServersTable && (key == "contextweave" || key.hasPrefix("contextweave."))) { return true }
+                // An inline server map can span structured values. Avoid appending a duplicate table.
+                if key == "mcp_servers" { return true }
+            }
+        }
+        return false
+    }
+
     /// Replaces only our marked block; refuses pre-existing unowned registrations.
     public static func merging(_ current: String, snippet: String) throws -> String {
         let normalized = recoveringCodexMarkers(current).replacingOccurrences(of: "\r\n", with: "\n")
@@ -221,13 +243,13 @@ extension AgentIntegration {
             result.replaceSubrange(start.lowerBound..<finish.upperBound, with: block)
             return current.contains("\r\n") ? result.replacingOccurrences(of: "\n", with: "\r\n") : result
         }
-        guard !normalized.contains("contextweave") else { throw CaptureError.invalid("An existing contextweave registration needs manual review; configuration was not changed.") }
+        guard !(snippet.hasPrefix("[mcp_servers.") ? hasCodexRegistration(normalized) : normalized.contains("contextweave")) else { throw CaptureError.invalid("An existing contextweave registration needs manual review; configuration was not changed.") }
         let result = normalized + (normalized.isEmpty ? "" : normalized.hasSuffix("\n") ? "\n" : "\n\n") + block + "\n"
         return current.contains("\r\n") ? result.replacingOccurrences(of: "\n", with: "\r\n") : result
     }
 
     /// Removes only our marked block. Unowned registrations are left untouched.
-    public static func removing(_ current: String) throws -> String {
+    public static func removing(_ current: String, codex: Bool = false) throws -> String {
         let normalized = recoveringCodexMarkers(current).replacingOccurrences(of: "\r\n", with: "\n")
         let begins = normalized.components(separatedBy: beginMarker).count - 1
         let ends = normalized.components(separatedBy: endMarker).count - 1
@@ -247,7 +269,7 @@ extension AgentIntegration {
         if begins > 0 || ends > 0 {
             throw CaptureError.invalid("Ambiguous managed MCP block; configuration was not changed.")
         }
-        guard !normalized.contains("contextweave") else { throw CaptureError.invalid("An existing contextweave registration needs manual review; configuration was not changed.") }
+        guard !(codex ? hasCodexRegistration(normalized) : normalized.contains("contextweave")) else { throw CaptureError.invalid("An existing contextweave registration needs manual review; configuration was not changed.") }
         return current
     }
 
@@ -276,7 +298,7 @@ extension AgentIntegration {
         if let executable {
             new = try merging(old, snippet: agent == "codex" ? codexSnippet(executable: executable) : dshSnippet(executable: executable))
         } else {
-            new = try removing(old)
+            new = try removing(old, codex: agent == "codex")
         }
         guard old != new else { return ["Unchanged: \(url.path)"] }
         var messages: [String] = []
@@ -309,7 +331,7 @@ extension AgentIntegration {
         // Preflight both files before making any change.
         let plans = try targets.map { url -> (URL, String, String) in
             let old = FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
-            return (url, old, try removing(old))
+            return (url, old, try removing(old, codex: url.lastPathComponent == "config.toml"))
         }
         var messages: [String] = []
         for (url, old, new) in plans {
@@ -338,7 +360,7 @@ extension AgentIntegration {
         if let block = managedBlock(in: normalized) {
             return AgentConnectionStatus(agent: agent, configPath: url.path, state: .connected, helperPath: commandPath(in: block), detail: nil)
         }
-        if normalized.contains("contextweave") {
+        if (agent == "codex" ? hasCodexRegistration(normalized) : normalized.contains("contextweave")) || normalized.contains(beginMarker) || normalized.contains(endMarker) {
             return AgentConnectionStatus(agent: agent, configPath: url.path, state: .unmanaged, helperPath: nil, detail: "A contextweave entry exists without ContextWeave markers.")
         }
         return AgentConnectionStatus(agent: agent, configPath: url.path, state: .notConfigured, helperPath: nil, detail: nil)
