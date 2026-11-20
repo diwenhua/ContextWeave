@@ -1,0 +1,29 @@
+name: Verify Zstandard macOS package
+on:
+  push:
+    branches: [codex/zstd-package-verification]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test ContextWeave
+        run: swift test
+      - name: Build test DMG
+        env:
+          CONTEXTWEAVE_VERSION: 0.0.0
+          CONTEXTWEAVE_BUILD_NUMBER: ${{ github.run_number }}
+        run: ./scripts/package-dmg.sh
+      - name: Verify bundle
+        run: |
+          codesign --verify --deep --strict dist/ContextWeave.app
+          test -s dist/ContextWeave.app/Contents/Resources/Zstandard-LICENSE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-macos-package
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error

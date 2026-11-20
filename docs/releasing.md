@@ -2,9 +2,10 @@
 
 `main` is the shared branch for integration and testing. Create short-lived feature or fix branches and merge through a pull request after macOS CI passes. Administrators should follow the same workflow.
 
-1. **Merge changes.** Each merge to `main` runs macOS CI to build and test the app.
+1. **Merge changes.** Each merge to `main` runs macOS CI to build and test the app. Release packaging and public Sparkle updates have separate triggers.
 2. **Build a test DMG when needed.** In GitHub Actions, open **Release draft → Run workflow**, select `main`, and leave the inputs at their defaults. Download `unsigned-macos-package` from that run. Record the commit SHA shown on the run page and verify the changes using that DMG.
-3. **Release a tested commit.** When a group of changes is ready to ship, tag the exact commit that passed testing. Use the recorded SHA even if more changes have since landed on `main`.
+3. **Push a release tag.** When a group of changes is ready to ship, tag the exact tested commit, even if more changes have since landed on `main`. The tag triggers the signed DMG build and Apple notarization submission. After Apple accepts it, resume the workflow to staple the ticket and create the GitHub Release draft.
+4. **Publish the stable release.** Review the draft and publish it as the latest stable release. This triggers the public Sparkle appcast update. Manual installation and Sparkle updates use the same final, notarized DMG from GitHub Releases.
 
 Stable tags use `vMAJOR.MINOR.PATCH` and must point to a commit reachable from `main`. Pushing a tag builds and tests the app on macOS, signs the runner-architecture DMG, and submits it to Apple. Resume that submission to generate the notarized package and create its draft GitHub Release.
 
