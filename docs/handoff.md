@@ -83,7 +83,7 @@ The context includes recent explicit progress notes and bounded transcript tails
 
 Defaults:
 
-- Codex: `~/.codex/sessions/rollout-*.jsonl` (recursive).
+- Codex: `~/.codex/sessions/**/rollout-*.jsonl[.zst|.zstd]` (recursive).
 - DeepSeek Harness: `~/.dsh/sessions/**/session[.vN].jsonl[.zstd]`.
 - Cursor: `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` and workspace metadata under `workspaceStorage` (local composer chats).
 - Antigravity: `~/.gemini/antigravity/brain/*/.system_generated/logs/transcript[_full].jsonl` and `~/.gemini/antigravity/conversation_summaries.db`.
