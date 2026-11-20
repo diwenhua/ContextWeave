@@ -90,10 +90,10 @@ struct MemoryPage: View {
 
     private var kindTabs: some View {
         HStack(spacing: 8) {
-            kindTab(nil, title: String(localized: "memory.kind.all", bundle: .module))
-            kindTab("summary", title: String(localized: "handoff.memory.summary", bundle: .module))
-            kindTab("decision", title: String(localized: "handoff.memory.decision", bundle: .module))
-            kindTab("preference", title: String(localized: "handoff.memory.preference", bundle: .module))
+            kindTab(nil, title: String(localized: "memory.kind.all", bundle: .appResources))
+            kindTab("summary", title: String(localized: "handoff.memory.summary", bundle: .appResources))
+            kindTab("decision", title: String(localized: "handoff.memory.decision", bundle: .appResources))
+            kindTab("preference", title: String(localized: "handoff.memory.preference", bundle: .appResources))
             Spacer(minLength: 0)
         }
     }
@@ -131,7 +131,7 @@ struct MemoryPage: View {
             HStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Weave.muted)
-                    TextField(String(localized: "memory.nav.search", bundle: .module), text: $search)
+                    TextField(String(localized: "memory.nav.search", bundle: .appResources), text: $search)
                         .textFieldStyle(.plain)
                 }
                 .padding(9)
@@ -149,13 +149,13 @@ struct MemoryPage: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Weave.muted)
-                    .help(Text("handoff.refresh", bundle: .module))
+                    .help(Text("handoff.refresh", bundle: .appResources))
                 }
             }
             .padding(12)
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle")
-                Text("memory.ruleMode", bundle: .module)
+                Text("memory.ruleMode", bundle: .appResources)
             }
             .font(.caption).foregroundStyle(Weave.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,7 +164,7 @@ struct MemoryPage: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     globalRow
                     if visibleGroups.isEmpty {
-                        Text("memory.nav.empty", bundle: .module)
+                        Text("memory.nav.empty", bundle: .appResources)
                             .font(.caption)
                             .foregroundStyle(Weave.muted)
                             .padding(.horizontal, 8)
@@ -193,7 +193,7 @@ struct MemoryPage: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Weave.thread)
                     .frame(width: 16)
-                Text("memory.scope.global", bundle: .module)
+                Text("memory.scope.global", bundle: .appResources)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Weave.ink)
                     .lineLimit(1)
@@ -238,7 +238,7 @@ struct MemoryPage: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(Text("memory.project.toggle", bundle: .module))
+                .help(Text("memory.project.toggle", bundle: .appResources))
                 Button {
                     selection = .project(group.id)
                     showsRejected = false
@@ -247,7 +247,7 @@ struct MemoryPage: View {
                     MemoryProjectRow(label: group.label, count: projectMemoryCount(group.id), active: projectSelected)
                 }
                 .buttonStyle(.plain)
-                .help(Text("memory.project.open", bundle: .module))
+                .help(Text("memory.project.open", bundle: .appResources))
                 .accessibilityAddTraits(projectSelected ? .isSelected : [])
             }
             if expanded {
@@ -328,15 +328,15 @@ struct MemoryPage: View {
                 HStack(spacing: 8) {
                     Image(systemName: "globe")
                         .foregroundStyle(Weave.thread)
-                    Text("memory.scope.global", bundle: .module)
+                    Text("memory.scope.global", bundle: .appResources)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Weave.thread)
                     Spacer(minLength: 8)
                     countLabel
                 }
-                Text("memory.global.title", bundle: .module)
+                Text("memory.global.title", bundle: .appResources)
                     .font(.system(size: 22, weight: .semibold))
-                Text("memory.global.subtitle", bundle: .module)
+                Text("memory.global.subtitle", bundle: .appResources)
                     .font(.caption)
                     .foregroundStyle(Weave.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -344,7 +344,7 @@ struct MemoryPage: View {
                 HStack(spacing: 8) {
                     Image(systemName: "folder")
                         .foregroundStyle(Weave.thread)
-                    Text("memory.scope.project", bundle: .module)
+                    Text("memory.scope.project", bundle: .appResources)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Weave.thread)
                     Spacer(minLength: 8)
@@ -353,12 +353,12 @@ struct MemoryPage: View {
                 Text(groups.first { $0.id == id }?.label ?? projectLabel(id.isEmpty ? nil : id))
                     .font(.system(size: 22, weight: .semibold))
                     .lineLimit(2)
-                Text("memory.project.subtitle", bundle: .module)
+                Text("memory.project.subtitle", bundle: .appResources)
                     .font(.caption)
                     .foregroundStyle(Weave.muted)
             case .session(let id):
                 HStack(spacing: 8) {
-                    Text("memory.scope.session", bundle: .module)
+                    Text("memory.scope.session", bundle: .appResources)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Weave.thread)
                     Spacer(minLength: 8)
@@ -366,7 +366,7 @@ struct MemoryPage: View {
                     Button {
                         openSession(id)
                     } label: {
-                        Text("memory.openSession", bundle: .module)
+                        Text("memory.openSession", bundle: .appResources)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -379,26 +379,26 @@ struct MemoryPage: View {
                     .foregroundStyle(Weave.muted)
                     .lineLimit(1)
                 MemoryCoverageStatus(id: id)
-                Picker(String(localized: "memory.semantic.watch", bundle: .module), selection: Binding(
+                Picker(String(localized: "memory.semantic.watch", bundle: .appResources), selection: Binding(
                     get: { model.memoryUpdatePreferences[id] ?? .inherit },
                     set: { model.setMemoryUpdate(id, preference: $0) }
                 )) {
-                    Text("memory.update.inherit", bundle: .module).tag(MemoryUpdatePreference.inherit)
-                    Text("memory.update.enabled", bundle: .module).tag(MemoryUpdatePreference.enabled)
-                    Text("memory.update.disabled", bundle: .module).tag(MemoryUpdatePreference.disabled)
+                    Text("memory.update.inherit", bundle: .appResources).tag(MemoryUpdatePreference.inherit)
+                    Text("memory.update.enabled", bundle: .appResources).tag(MemoryUpdatePreference.enabled)
+                    Text("memory.update.disabled", bundle: .appResources).tag(MemoryUpdatePreference.disabled)
                 }
                 Text(model.effectiveMemoryUpdate(id)
-                     ? String(localized: "memory.update.effectiveOn", bundle: .module)
-                     : String(localized: "memory.update.effectiveOff", bundle: .module))
+                     ? String(localized: "memory.update.effectiveOn", bundle: .appResources)
+                     : String(localized: "memory.update.effectiveOff", bundle: .appResources))
                     .font(.caption).foregroundStyle(Weave.muted)
-                Text("memory.semantic.privacy", bundle: .module)
+                Text("memory.semantic.privacy", bundle: .appResources)
                     .font(.caption).foregroundStyle(Weave.muted).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button(String(localized: "memory.semantic.run", bundle: .module)) { model.extractMemory(id) }
+                    Button(String(localized: "memory.semantic.run", bundle: .appResources)) { model.extractMemory(id) }
                         .disabled(model.extractingMemory != nil)
                     if model.extractingMemory == id {
                         ProgressView().controlSize(.small)
-                        Text(String(format: String(localized: "memory.processed", bundle: .module), model.processedMessages)).font(.caption)
+                        Text(String(format: String(localized: "memory.processed", bundle: .appResources), model.processedMessages)).font(.caption)
                     }
                     if let message = model.memoryExtractionMessage { Text(message).font(.caption).foregroundStyle(Weave.muted) }
                 }
@@ -412,7 +412,7 @@ struct MemoryPage: View {
     }
 
     private var countLabel: some View {
-        Text(String(format: String(localized: "memory.count", bundle: .module), currentMemories.count))
+        Text(String(format: String(localized: "memory.count", bundle: .appResources), currentMemories.count))
             .font(.caption.weight(.medium))
             .foregroundStyle(Weave.muted)
     }
@@ -422,9 +422,9 @@ struct MemoryPage: View {
             Image(systemName: emptyIcon)
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(Weave.muted)
-            Text(emptyTitle, bundle: .module)
+            Text(emptyTitle, bundle: .appResources)
                 .font(.title3.weight(.semibold))
-            Text(emptyBody, bundle: .module)
+            Text(emptyBody, bundle: .appResources)
                 .font(.callout)
                 .foregroundStyle(Weave.muted)
                 .multilineTextAlignment(.center)
@@ -492,7 +492,7 @@ struct MemoryPage: View {
     private func groupLabel(_ item: SessionSummary) -> String {
         if let id = item.stableProjectID, !id.isEmpty { return projectLabel(id) }
         if let path = item.projectID, !path.isEmpty { return URL(fileURLWithPath: path).lastPathComponent }
-        return String(localized: "handoff.noProject", bundle: .module)
+        return String(localized: "handoff.noProject", bundle: .appResources)
     }
 
     private func projectMemoryCount(_ id: String) -> Int {
@@ -560,7 +560,7 @@ private struct MemoryProjectRow: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Weave.ink)
                     .lineLimit(1)
-                Text("memory.scope.project", bundle: .module)
+                Text("memory.scope.project", bundle: .appResources)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Weave.thread)
             }
@@ -613,7 +613,7 @@ private struct MemorySessionRow: View {
                         .foregroundStyle(Weave.agent(item.id.agent))
                 }
                 HStack(spacing: 8) {
-                    Text("memory.scope.session", bundle: .module)
+                    Text("memory.scope.session", bundle: .appResources)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Weave.muted)
                     AgentPill(agent: item.id.agent, compact: true)
@@ -662,7 +662,7 @@ private struct MemoryEntry: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Weave.thread.opacity(0.12)))
-                Text(String(localized: String.LocalizationValue("memory.status." + memory.status), bundle: .module))
+                Text(String(localized: String.LocalizationValue("memory.status." + memory.status), bundle: .appResources))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(Weave.muted)
                 Spacer(minLength: 4)
@@ -677,7 +677,7 @@ private struct MemoryEntry: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
                 if memory.sourceMessageID != nil {
-                    Button(String(localized: "memory.evidence", bundle: .module)) {
+                    Button(String(localized: "memory.evidence", bundle: .appResources)) {
                         Task {
                             do { evidenceText = try await model.evidence(for: memory) }
                             catch { evidenceText = error.localizedDescription }
@@ -692,7 +692,7 @@ private struct MemoryEntry: View {
                         .lineLimit(1)
                     if let onOpenSource {
                         Button(action: onOpenSource) {
-                            Text("memory.openSession", bundle: .module)
+                            Text("memory.openSession", bundle: .appResources)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(tint)
@@ -707,15 +707,15 @@ private struct MemoryEntry: View {
             .foregroundStyle(Weave.muted)
             ForEach(model.memoryConflicts.filter { $0.candidateID == memory.id }) { conflict in
                 VStack(alignment: .leading, spacing: 6) {
-                    Label(String(localized: "memory.conflict.title", bundle: .module), systemImage: "exclamationmark.triangle")
+                    Label(String(localized: "memory.conflict.title", bundle: .appResources), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Text(conflict.reason).textSelection(.enabled)
                     if let old = model.memories.first(where: { $0.id == conflict.confirmedID }) {
                         Text(old.content).foregroundStyle(Weave.muted).textSelection(.enabled)
-                        Button(String(localized: "memory.conflict.replace", bundle: .module)) { model.replaceMemory(old, with: memory) }
+                        Button(String(localized: "memory.conflict.replace", bundle: .appResources)) { model.replaceMemory(old, with: memory) }
                             .disabled(model.memoryConflicts.filter { $0.candidateID == memory.id }.count > 1)
                     }
-                    Button(String(localized: "memory.conflict.keep", bundle: .module)) { model.dismissConflict(conflict) }
+                    Button(String(localized: "memory.conflict.keep", bundle: .appResources)) { model.dismissConflict(conflict) }
                 }
                 .font(.caption)
                 .padding(10)
@@ -731,7 +731,7 @@ private struct MemoryEntry: View {
                             (old.scope != "session" || (old.agent == memory.agent && old.externalID == memory.externalID))
                         }
                         if !matches.isEmpty {
-                            Menu(String(localized: "memory.replace", bundle: .module)) {
+                            Menu(String(localized: "memory.replace", bundle: .appResources)) {
                                 ForEach(matches, id: \.id) { old in
                                     Button(old.content) { model.replaceMemory(old, with: memory) }
                                 }
@@ -739,24 +739,24 @@ private struct MemoryEntry: View {
                         }
                     }
                     if memory.status != "confirmed" {
-                        Button(String(localized: "memory.confirm", bundle: .module)) { model.reviewMemory(memory, status: "confirmed") }
+                        Button(String(localized: "memory.confirm", bundle: .appResources)) { model.reviewMemory(memory, status: "confirmed") }
                             .disabled(model.extractingMemory != nil || model.memoryConflicts.contains { $0.candidateID == memory.id })
                     }
                     if memory.status != "rejected" {
-                        Button(String(localized: "memory.reject", bundle: .module)) { model.reviewMemory(memory, status: "rejected") }
+                        Button(String(localized: "memory.reject", bundle: .appResources)) { model.reviewMemory(memory, status: "rejected") }
                     }
                     if memory.status != "candidate" {
-                        Button(String(localized: "memory.reset", bundle: .module)) { model.reviewMemory(memory, status: "candidate") }
+                        Button(String(localized: "memory.reset", bundle: .appResources)) { model.reviewMemory(memory, status: "candidate") }
                     }
                     Menu {
                         ForEach(["global", "project", "session"], id: \.self) { destination in
-                            Button(String(localized: String.LocalizationValue("memory.scope." + destination), bundle: .module)) {
+                            Button(String(localized: String.LocalizationValue("memory.scope." + destination), bundle: .appResources)) {
                                 model.moveMemory(memory, scope: destination)
                             }
                             .disabled(memory.scope == destination)
                         }
                     } label: {
-                        Text("memory.move", bundle: .module)
+                        Text("memory.move", bundle: .appResources)
                     }
                     Spacer(minLength: 0)
                 }
@@ -779,14 +779,14 @@ private struct MemoryEntry: View {
 
 private func rejectedLabel(_ shown: Bool, count: Int) -> String {
     let key: String.LocalizationValue = shown ? "memory.rejected.hide" : "memory.rejected.show"
-    return String(format: String(localized: key, bundle: .module), count)
+    return String(format: String(localized: key, bundle: .appResources), count)
 }
 
 private func memoryKindTitle(_ kind: String) -> String {
     switch kind {
-    case "summary": String(localized: "handoff.memory.summary", bundle: .module)
-    case "decision": String(localized: "handoff.memory.decision", bundle: .module)
-    default: String(localized: "handoff.memory.preference", bundle: .module)
+    case "summary": String(localized: "handoff.memory.summary", bundle: .appResources)
+    case "decision": String(localized: "handoff.memory.decision", bundle: .appResources)
+    default: String(localized: "handoff.memory.preference", bundle: .appResources)
     }
 }
 
@@ -818,22 +818,22 @@ private struct MemoryCoverageStatus: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let coverage {
-                Label(String(localized: String.LocalizationValue("memory.coverage." + coverage.status), bundle: .module), systemImage: coverage.status == "current" ? "checkmark.circle" : "clock.badge.exclamationmark")
+                Label(String(localized: String.LocalizationValue("memory.coverage." + coverage.status), bundle: .appResources), systemImage: coverage.status == "current" ? "checkmark.circle" : "clock.badge.exclamationmark")
                     .foregroundStyle(coverage.status == "current" ? Color.secondary : Color.orange)
                 if coverage.status == "current" || coverage.status == "stale" {
-                    Text(String(format: String(localized: "memory.coverage.progress", bundle: .module), coverage.coveredDialogueMessages, coverage.totalDialogueMessages, coverage.uncoveredMessages))
+                    Text(String(format: String(localized: "memory.coverage.progress", bundle: .appResources), coverage.coveredDialogueMessages, coverage.totalDialogueMessages, coverage.uncoveredMessages))
                 } else {
-                    Text("memory.coverage.unknownHint", bundle: .module)
+                    Text("memory.coverage.unknownHint", bundle: .appResources)
                 }
-                Text(String(localized: String.LocalizationValue("memory.coverage.auto." + coverage.autoUpdate), bundle: .module))
+                Text(String(localized: String.LocalizationValue("memory.coverage.auto." + coverage.autoUpdate), bundle: .appResources))
                 if coverage.autoUpdate != "off" {
-                    Text(String(format: String(localized: "memory.update.accumulation", bundle: .module), coverage.pendingDialogueMessages, coverage.minimumNewMessages))
+                    Text(String(format: String(localized: "memory.update.accumulation", bundle: .appResources), coverage.pendingDialogueMessages, coverage.minimumNewMessages))
                 }
                 if let stamp = coverage.updatedAt {
                     Text(Date(timeIntervalSince1970: Double(stamp) / 1000), style: .relative)
                 }
             } else if failed {
-                Text("memory.coverage.error", bundle: .module)
+                Text("memory.coverage.error", bundle: .appResources)
             } else { ProgressView().controlSize(.small) }
         }
         .font(.caption)

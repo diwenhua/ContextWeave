@@ -18,7 +18,7 @@ final class SettingsStore: ObservableObject {
         } catch {
             settings = AppSettings()
             if FileManager.default.fileExists(atPath: fileURL.path) {
-                self.error = String(localized: "settings.error.read", bundle: .module) + " " + error.localizedDescription
+                self.error = String(localized: "settings.error.read", bundle: .appResources) + " " + error.localizedDescription
             }
         }
     }
@@ -38,7 +38,7 @@ final class SettingsStore: ObservableObject {
             catch { failure = error.localizedDescription }
             Task { @MainActor [weak self] in
                 guard let self, self.writeRevision == revision else { return }
-                self.error = failure.map { String(localized: "settings.error.write", bundle: .module) + " " + $0 }
+                self.error = failure.map { String(localized: "settings.error.write", bundle: .appResources) + " " + $0 }
             }
         }
     }

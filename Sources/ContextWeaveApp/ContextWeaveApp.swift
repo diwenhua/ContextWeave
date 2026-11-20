@@ -27,7 +27,7 @@ struct ContextWeaveApp: App {
         .defaultSize(width: 1280, height: 800)
         .commands {
             CommandGroup(after: .appInfo) {
-                Button(String(localized: "updates.check", bundle: .module)) {
+                Button(String(localized: "updates.check", bundle: .appResources)) {
                     updates.checkForUpdates()
                 }
                 .disabled(!updates.canCheckForUpdates)
@@ -75,7 +75,7 @@ enum WindowSizing {
 final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         RunNotifier.shared.start()
-        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+        if let url = Bundle.appResources.url(forResource: "AppIcon", withExtension: "png"),
            let icon = NSImage(contentsOf: url) {
             NSApplication.shared.applicationIconImage = icon
         }

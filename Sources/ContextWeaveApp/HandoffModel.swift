@@ -276,7 +276,7 @@ final class HandoffModel: ObservableObject {
                         try await extract(service, id: id, model: model, key: key)
                         try Task.checkCancellation()
                         try await service.finishWatch(id, revision: revision, success: true)
-                        memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .module)
+                        memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .appResources)
                         await publishScanProgress(service)
                     } catch {
                         if Task.isCancelled { break }
@@ -320,7 +320,7 @@ final class HandoffModel: ObservableObject {
                 let key = try MemoryModelKeychain.load(endpoint: url)
                 try await extract(service, id: id, model: model, key: key)
                 await publishScanProgress(service)
-                memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .module)
+                memoryExtractionMessage = String(localized: "memory.semantic.success", bundle: .appResources)
             } catch { memoryExtractionMessage = error.localizedDescription }
         }
     }
@@ -378,7 +378,7 @@ final class HandoffModel: ObservableObject {
         for session in waiting {
             let agent = Self.agentName(session.id.agent)
             RunNotifier.shared.deliver(
-                title: String(format: String(localized: "handoff.run.approvalTitle", bundle: .module), agent),
+                title: String(format: String(localized: "handoff.run.approvalTitle", bundle: .appResources), agent),
                 subtitle: projectName(session),
                 body: Self.noticeSubject(session),
                 session: session.id
@@ -387,7 +387,7 @@ final class HandoffModel: ObservableObject {
         for session in ended {
             let agent = Self.agentName(session.id.agent)
             RunNotifier.shared.deliver(
-                title: String(format: String(localized: "handoff.run.endedTitle", bundle: .module), agent),
+                title: String(format: String(localized: "handoff.run.endedTitle", bundle: .appResources), agent),
                 subtitle: projectName(session),
                 body: Self.noticeSubject(session),
                 session: session.id
